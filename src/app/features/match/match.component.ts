@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { CUP_NAME, LEAGUE_NAME } from '../../core/data/clubs.data';
+import { CUP_NAMES, leagueDef } from '../../core/data/leagues.data';
 import { isAvailable, teamStrength } from '../../core/engine/lineup';
 import { Side, startingStamina } from '../../core/engine/match-engine';
 import { fixtureWinner } from '../../core/engine/schedule';
@@ -101,7 +101,7 @@ export class MatchComponent {
       home: clubs.get(f.homeId)!,
       away: clubs.get(f.awayId)!,
       userSide: (f.homeId === s.userClubId ? 'home' : 'away') as Side,
-      competition: f.competition === 'cup' ? `${CUP_NAME} — ${week.label}` : `${LEAGUE_NAME} — ${week.label}`,
+      competition: f.competition === 'cup' ? `${CUP_NAMES[f.cup ?? 'FRA'] ?? 'Coupe'} — ${week.label}` : `${leagueDef(clubs.get(f.homeId)?.leagueId).name} — ${week.label}`,
       week,
     };
   });

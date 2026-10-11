@@ -35,7 +35,7 @@ export function roundRobin(teamIds: string[]): Pairing[][] {
 }
 
 /** Semaines de championnat après lesquelles se joue un tour de coupe. */
-const CUP_AFTER_MATCHDAY = [4, 11, 19, 26];
+const CUP_AFTER_MATCHDAY = [3, 9, 15, 21, 26];
 
 function firstSaturdayOfAugust(year: number): Date {
   const d = new Date(Date.UTC(year, 7, 1));
@@ -48,8 +48,10 @@ export interface SeasonPlan {
   fixtures: Fixture[];
 }
 
-export function buildSeason(season: number, clubIds: string[], rng: Rng, nextId: () => string): SeasonPlan {
-  const rounds = roundRobin(rng.shuffle(clubIds));
+/** Calendrier de tous les championnats (même rythme de journées) et semaines de coupe. */
+export function buildSeason(season: number, leagues: string[][], rng: Rng, nextId: () => string): SeasonPlan {
+  const calendars = leagues.map((clubIds) => roundRobin(rng.shuffle(clubIds)));
+  const rounds = Array.from({ length: Math.max(...calendars.map((c) => c.length)) }, (_, r) => calendars.flatMap((c) => c[r] ?? []));
   const weeks: SeasonWeek[] = [];
   const fixtures: Fixture[] = [];
   const start = firstSaturdayOfAugust(season);
@@ -73,10 +75,10 @@ export function buildSeason(season: number, clubIds: string[], rng: Rng, nextId:
 }
 
 /** Tirage au sort d'un tour de coupe (match sec, l'équipe tirée en premier reçoit). */
-export function drawCupRound(teamIds: string[], week: number, rng: Rng, nextId: () => string): Fixture[] {
+export function drawCupRound(teamIds: string[], week: number, rng: Rng, nextId: () => string, cup = 'FRA'): Fixture[] {
   const pot = rng.shuffle(teamIds);
   const out: Fixture[] = [];
-  for (let i = 0; i + 1 < pot.length; i += 2) out.push(newFixture(nextId(), 'cup', week, pot[i], pot[i + 1]));
+  for (let i = 0; i + 1 < pot.length; i += 2) out.push({ ...newFixture(nextId(), 'cup', week, pot[i], pot[i + 1]), cup });
   return out;
 }
 

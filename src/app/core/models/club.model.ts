@@ -40,8 +40,10 @@ export interface Club {
   capacity: number;
   /** Réputation 1-100 : influence les recettes, l'affluence et l'attrait pour les joueurs. */
   reputation: number;
-  /** Niveau sportif 1-5 étoiles (affichage, génération de l'effectif). */
+  /** Niveau sportif 1-5 étoiles au sein de son championnat (affichage, génération de l'effectif). */
   level: number;
+  /** Championnat dans lequel le club évolue cette saison (voir LEAGUES). */
+  leagueId: string;
   /** Trésorerie du club. */
   balance: number;
   /** Enveloppe allouée par la direction aux transferts. */

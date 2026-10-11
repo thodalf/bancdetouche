@@ -2,14 +2,26 @@
   <header class="page-head">
     <div>
       <h1>Compétitions</h1>
-      <p>Saison {{ state().season }}-{{ state().season + 1 }} : {{ leagueName }} (30 journées) et {{ cupName }} (élimination directe).</p>
+      <p>Saison {{ state().season }}-{{ state().season + 1 }} : {{ league().flag }} {{ leagueName() }} ({{ table().length }} clubs, {{ (table().length - 1) * 2 }} journées) et {{ cupName() }} (élimination directe).</p>
     </div>
   </header>
+
+  <div class="league-picker" role="tablist" aria-label="Championnat">
+    @for (l of leagues; track l.id) {
+      <button type="button" role="tab" class="league-chip" [attr.aria-selected]="leagueId() === l.id" [class.mine]="l.id === store.userLeague().id" (click)="leagueId.set(l.id)">
+        <span class="flag">{{ l.flag }}</span>
+        <span class="lname">{{ l.name }}</span>
+        @if (l.tier > 1) {
+          <small>D{{ l.tier }}</small>
+        }
+      </button>
+    }
+  </div>
 
   <div class="segmented" role="tablist">
     <button type="button" role="tab" [attr.aria-selected]="tab() === 'table'" (click)="tab.set('table')">Classement</button>
     <button type="button" role="tab" [attr.aria-selected]="tab() === 'calendar'" (click)="tab.set('calendar')">Calendrier</button>
-    <button type="button" role="tab" [attr.aria-selected]="tab() === 'cup'" (click)="tab.set('cup')">{{ cupName }}</button>
+    <button type="button" role="tab" [attr.aria-selected]="tab() === 'cup'" (click)="tab.set('cup')">{{ cupName() }}</button>
     <button type="button" role="tab" [attr.aria-selected]="tab() === 'stats'" (click)="tab.set('stats')">Statistiques</button>
   </div>
 
@@ -35,7 +47,7 @@
             </thead>
             <tbody>
               @for (r of table(); track r.row.clubId) {
-                <tr [class.is-user]="r.row.clubId === state().userClubId" [attr.data-zone]="r.pos <= 3 ? 'top' : r.pos > table().length - 3 ? 'bottom' : null">
+                <tr [class.is-user]="r.row.clubId === state().userClubId" [attr.data-zone]="zone(r.pos, table().length)">
                   <td class="num pos">{{ r.pos }}</td>
                   <td>
                     <span class="club-cell"><app-club-crest [club]="r.club" [size]="20" /><span>{{ r.club.name }}</span></span>
@@ -54,7 +66,13 @@
             </tbody>
           </table>
         </div>
-        <p class="legend muted"><span class="swatch top"></span> Podium <span class="swatch bottom"></span> Bas de tableau — départage : points, différence de buts, buts marqués.</p>
+        <p class="legend muted">
+          <span class="swatch top"></span> {{ league().up ? 'Montée en ' + (league().up === 'fr1' ? 'Division Élite' : 'D1') : 'Podium' }}
+          @if (league().down) {
+            <span class="swatch bottom"></span> Relégation en Division Excellence
+          }
+          — départage : points, différence de buts, buts marqués.
+        </p>
       </section>
     }
 
@@ -64,7 +82,7 @@
           <button type="button" class="btn btn-sm" (click)="step(-1)" [disabled]="viewWeek() === 0" aria-label="Semaine précédente">‹</button>
           <div class="cal-title">
             <strong>{{ weekInfo().label }}</strong>
-            <span class="muted">{{ weekInfo().competition === 'cup' ? cupName : leagueName }} — {{ weekInfo().date | matchDate }}</span>
+            <span class="muted">{{ weekInfo().competition === 'cup' ? cupName() : leagueName() }} — {{ weekInfo().date | matchDate }}</span>
           </div>
           <button type="button" class="btn btn-sm" (click)="step(1)" [disabled]="viewWeek() >= state().weeks.length - 1" aria-label="Semaine suivante">›</button>
           <label class="check">
@@ -103,7 +121,7 @@
                 <ul class="events">
                   @for (e of f.events; track $index) {
                     @if (e.type === 'goal' || e.type === 'red' || isUser(f)) {
-                      <li [attr.data-type]="e.type"><span class="min">{{ e.minute }}'</span> {{ e.text }}</li>
+                      <li [attr.data-type]="e.type"><span class="min">{{ e.minute }}'</span> {{ eventText(e, f) }}</li>
                     }
                   } @empty {
                     <li class="muted">Aucun fait de match notable.</li>

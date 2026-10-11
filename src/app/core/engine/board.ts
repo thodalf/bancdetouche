@@ -1,11 +1,11 @@
-import { CUP_NAME, LEAGUE_NAME } from '../data/clubs.data';
-import { BoardObjective, BoardState, CUP_ROUND_LABELS, Fixture, GameState, ObjectiveImportance, ObjectiveStatus } from '../models';
+import { CUP_NAMES } from '../data/leagues.data';
+import { BoardObjective, BoardState, CUP_FINAL_ROUND, CUP_ROUND_LABELS, Fixture, GameState, ObjectiveImportance, ObjectiveStatus } from '../models';
 import { wageBill } from './finance';
 import { clamp } from './player-factory';
 import { fixtureWinner } from './schedule';
 import { computeStandings } from './standings';
 import { roundMoney } from './valuation';
-import { addNews, clubById, IdGen, squadOf } from './world';
+import { addNews, clubById, IdGen, leagueClubs, leagueOfClub, squadOf } from './world';
 import { fx } from './characters';
 
 export const SACK_THRESHOLD = 12;
@@ -22,22 +22,31 @@ export const STATUS_LABELS: Record<ObjectiveStatus, string> = {
 /** Objectifs fixés par la direction pour la saison (ou le reste de la saison après une arrivée). */
 export function createBoard(s: GameState, confidence = 60): BoardState {
   const club = clubById(s, s.userClubId);
-  const rank = [...s.clubs].sort((a, b) => b.reputation - a.reputation).findIndex((c) => c.id === club.id) + 1;
-  // Le club le plus modeste doit au minimum éviter la dernière place.
-  const leagueTarget = Math.min(s.clubs.length - 1, rank === 1 ? 1 : rank + 1);
-  const objectives: BoardObjective[] = [
-    {
-      kind: 'league',
-      label: leagueTarget === 1 ? `Remporter la ${LEAGUE_NAME}` : `Finir dans le top ${leagueTarget} de la ${LEAGUE_NAME}`,
-      target: leagueTarget,
-      importance: 'high',
-    },
-  ];
-  const cupTarget = rank <= 2 ? 3 : rank <= 6 ? 2 : rank <= 11 ? 1 : -1;
+  const league = leagueOfClub(s, club.id);
+  const rivals = leagueClubs(s, league.id);
+  const rank = [...rivals].sort((a, b) => b.reputation - a.reputation).findIndex((c) => c.id === club.id) + 1;
+  // Le club le plus modeste doit au minimum éviter la relégation (ou la dernière place).
+  const safe = rivals.length - (league.down ? (league.swap ?? 0) : 1);
+  // En deuxième division, les favoris visent la montée.
+  const promotionSpots = league.up ? (league.swap ?? 0) : 0;
+  let leagueTarget = Math.min(safe, rank === 1 ? 1 : rank + 1);
+  if (promotionSpots && rank <= promotionSpots + 1) leagueTarget = promotionSpots;
+  const leagueLabel =
+    leagueTarget === 1
+      ? `Remporter la ${league.name}`
+      : promotionSpots && leagueTarget <= promotionSpots
+        ? `Monter : finir dans le top ${leagueTarget} de la ${league.name}`
+        : leagueTarget === safe && league.down
+          ? `Se maintenir en ${league.name} (top ${leagueTarget})`
+          : `Finir dans le top ${leagueTarget} de la ${league.name}`;
+  const objectives: BoardObjective[] = [{ kind: 'league', label: leagueLabel, target: leagueTarget, importance: 'high' }];
+  const cupName = CUP_NAMES[league.country] ?? 'Coupe nationale';
+  // Tour à atteindre : finale, demi-finales ou quarts.
+  const cupTarget = rank <= 2 ? CUP_FINAL_ROUND : rank <= 6 ? CUP_FINAL_ROUND - 1 : rank <= 11 ? CUP_FINAL_ROUND - 2 : -1;
   if (cupTarget >= 0) {
     objectives.push({
       kind: 'cup',
-      label: `${CUP_NAME} : atteindre ${cupTarget === 3 ? 'la finale' : cupTarget === 2 ? 'les demi-finales' : 'les quarts de finale'}`,
+      label: `${cupName} : atteindre ${cupTarget === CUP_FINAL_ROUND ? 'la finale' : cupTarget === CUP_FINAL_ROUND - 1 ? 'les demi-finales' : 'les quarts de finale'}`,
       target: cupTarget,
       importance: rank <= 6 ? 'medium' : 'low',
     });
@@ -67,7 +76,7 @@ export function objectiveStatus(s: GameState, o: BoardObjective): { status: Obje
   const club = clubById(s, s.userClubId);
   switch (o.kind) {
     case 'league': {
-      const table = computeStandings(s.clubs.map((c) => c.id), s.fixtures);
+      const table = computeStandings(leagueClubs(s, leagueOfClub(s, s.userClubId).id).map((c) => c.id), s.fixtures);
       const pos = table.findIndex((r) => r.clubId === s.userClubId) + 1;
       const detail = `Actuellement ${pos}e`;
       if (over) return { status: pos <= o.target ? 'achieved' : 'failed', detail: `Classement final : ${pos}e` };

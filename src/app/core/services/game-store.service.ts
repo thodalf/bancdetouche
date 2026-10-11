@@ -2,6 +2,7 @@ import { computed, Injectable, signal } from '@angular/core';
 import { Rng } from '../engine/rng';
 import { isSeasonOver } from '../engine/season';
 import { computeStandings } from '../engine/standings';
+import { CUP_NAMES, leagueDef } from '../data/leagues.data';
 import { wageBill } from '../engine/finance';
 import { checkSquadRules } from '../engine/rules';
 import { knowledgeOf, potentialEstimate, PotentialEstimate, ratingView, RatingView } from '../engine/scouting';
@@ -51,12 +52,22 @@ export class GameStore {
 
   readonly userWageBill = computed(() => wageBill(this.userSquad()));
 
-  readonly standings = computed(() => {
+  /** Championnat du club de l'entraîneur. */
+  readonly userLeague = computed(() => leagueDef(this.userClub()?.leagueId));
+  /** Coupe nationale du club de l'entraîneur. */
+  readonly userCupName = computed(() => CUP_NAMES[this.userLeague().country] ?? 'Coupe nationale');
+
+  /** Classement du championnat de l'entraîneur. */
+  readonly standings = computed(() => this.standingsFor(this.userLeague().id));
+
+  /** Classement d'un championnat (recalculé à partir des résultats). */
+  standingsFor(leagueId: string) {
     const s = this._state();
     if (!s) return [];
     const clubs = this.clubsById();
-    return computeStandings(s.clubs.map((c) => c.id), s.fixtures, (id) => clubs.get(id)?.name ?? id);
-  });
+    const ids = s.clubs.filter((c) => (c.leagueId ?? 'fr1') === leagueId).map((c) => c.id);
+    return computeStandings(ids, s.fixtures, (id) => clubs.get(id)?.name ?? id);
+  }
 
   readonly userPosition = computed(() => {
     const s = this._state();

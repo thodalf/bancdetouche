@@ -1,10 +1,11 @@
 import { Club, Effects, GameState, hasTrait, isNonEu, LifestyleId, Player, PLAYER_TRAITS, PlayerTrait, playerTraits, POSITION_GROUP, POSITION_LABELS, STAFF_ROLE_LABELS, StaffMember, StaffRole, TraitId } from '../models';
 import { computeStandings } from './standings';
+import { leagueDef } from '../data/leagues.data';
 import { generateStaff, staffWage } from './characters';
 import { clamp, createPlayer, SQUAD_TEMPLATE } from './player-factory';
 import { expectedWage, marketValue, roundMoney } from './valuation';
 import { Rng } from './rng';
-import { addMoney, addNews, clubById, fullName, IdGen, squadOf, youthOf } from './world';
+import { addMoney, addNews, clubById, fullName, IdGen, leagueClubs, leagueOfClub, squadOf, youthOf } from './world';
 
 /** Contexte d'un événement : personnage et/ou joueur concernés. */
 export interface EventContext {
@@ -98,8 +99,17 @@ export function streak(s: GameState, kind: Result): number {
 }
 
 export function leaguePosition(s: GameState): number {
-  return computeStandings(s.clubs.map((c) => c.id), s.fixtures).findIndex((r) => r.clubId === s.userClubId) + 1;
+  return computeStandings(leagueClubs(s, leagueOfClub(s, s.userClubId).id).map((c) => c.id), s.fixtures).findIndex((r) => r.clubId === s.userClubId) + 1;
 }
+
+/** Championnat de l'entraîneur. */
+const myLeague = (s: GameState) => leagueOfClub(s, s.userClubId);
+/** Clubs des championnats étrangers (autre pays que celui de l'entraîneur). */
+const foreignClubs = (s: GameState) => s.clubs.filter((c) => leagueDef(c.leagueId).country !== myLeague(s).country);
+/** Index tournant (varie d'une semaine à l'autre, sans tirage aléatoire). */
+const rotateIndex = (s: GameState, n: number) => (s.season * 7 + s.currentWeek) % Math.max(1, n);
+/** Nombre de clubs du championnat de l'entraîneur. */
+const leagueSize = (s: GameState) => leagueClubs(s, leagueOfClub(s, s.userClubId).id).length;
 
 /** Prochain match de l'entraîneur (cette semaine ou la suivante). */
 function nextFixture(s: GameState) {
@@ -6132,7 +6142,7 @@ export const EVENTS: EventDef[] = [
     id: 'relegation-fear',
     title: 'Le spectre de la relégation',
     urgent: true,
-    condition: (s) => s.currentWeek >= 10 && leaguePosition(s) > s.clubs.length - 3,
+    condition: (s) => s.currentWeek >= 10 && leaguePosition(s) > leagueSize(s) - 3,
     text: (_c, s) => `${leaguePosition(s)}e au classement. La zone rouge n'est plus une menace, c'est une réalité. La ville retient son souffle.`,
     options: [
       {
@@ -6454,6 +6464,295 @@ export const EVENTS: EventDef[] = [
           teamMorale(s, 2);
           board(s, 1);
           return 'Une règle, une seule. Elle est respectée… presque.';
+        },
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------- championnats : montée, étranger, relégation
+  {
+    id: 'promotion-race',
+    title: 'La course à la montée',
+    condition: (s) => !!myLeague(s).up && leaguePosition(s) <= 5 && s.currentWeek >= Math.floor(s.weeks.length * 0.45) && s.currentWeek < s.weeks.length - 3,
+    text: (_c, s) => `${leaguePosition(s)}e de ${myLeague(s).name} : la montée en ${leagueDef(myLeague(s).up).name} est à portée de main. Toute la ville en parle, la direction aussi.`,
+    options: [
+      {
+        label: 'Tout pour la montée',
+        outcome: 'Force en match +3 % et moral +3 pendant 8 semaines, mais risque de blessure +15 %. Confiance de la direction +3.',
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Objectif montée', { matchStrength: 0.03, morale: 3, injuryRisk: 0.15 }, 8);
+          board(s, 3);
+          return 'Le vestiaire ne parle plus que de ça.';
+        },
+      },
+      {
+        label: 'Match après match',
+        outcome: 'Moral de l’équipe +4, récupération +10 % pendant 6 semaines.',
+        apply: (s, _c, _r, ids) => {
+          teamMorale(s, 4);
+          modifier(s, ids, 'Sans pression', { recovery: 0.1 }, 6);
+          return 'Pas de calcul : on joue le prochain match.';
+        },
+      },
+      {
+        label: 'Le président ouvre le chéquier',
+        outcome: 'Budget transferts +1,5 M€, confiance de la direction −2 : elle attend un retour sur investissement.',
+        requires: lifestyle('negotiator', 'Négociateur'),
+        apply: (s) => {
+          const club = userClub(s);
+          club.transferBudget += 1_500_000;
+          board(s, -2);
+          return 'Une rallonge pour finir le travail. Elle se paiera en exigence.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'promoted-newcomer',
+    title: 'Le petit nouveau',
+    condition: (s) => {
+      const last = s.history[s.history.length - 1];
+      return s.currentWeek >= 1 && s.currentWeek <= 6 && !!last?.userLeagueId && last.userClubId === s.userClubId && leagueDef(last.userLeagueId).tier > myLeague(s).tier;
+    },
+    text: (_c, s) => `Le club découvre la ${myLeague(s).name}. Les stades sont plus grands, les adversaires plus forts, et la presse vous classe déjà parmi les favoris à la relégation.`,
+    options: [
+      {
+        label: 'Jouer l’humilité',
+        outcome: 'Confiance de la direction +5, moral de l’équipe +2.',
+        apply: (s) => {
+          board(s, 5);
+          teamMorale(s, 2);
+          return 'Le maintien d’abord. Les supporters apprécient le discours.';
+        },
+      },
+      {
+        label: 'Afficher de l’ambition',
+        outcome: 'Force en match +2 % pendant 6 semaines ; confiance −3.',
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Promu sans complexe', { matchStrength: 0.02 }, 6);
+          board(s, -3);
+          return 'Vos joueurs rentrent sur le terrain sans complexe.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'foreign-giant',
+    title: 'Un géant étranger frappe à la porte',
+    pickPlayer: (s) => byRating(userSquad(s))[0],
+    pickClub: (s) => foreignClubs(s).sort((a, b) => b.reputation - a.reputation)[rotateIndex(s, 4)],
+    condition: (s) => s.currentWeek >= 3 && foreignClubs(s).length > 0 && userSquad(s).length > 18,
+    text: (c) => `${c.club?.name ?? 'Un grand club étranger'} (${c.club ? leagueDef(c.club.leagueId).name : 'à l’étranger'}) veut ${pname(c)}. Son agent assure que le joueur rêve de ce championnat.`,
+    options: [
+      {
+        label: 'Écouter l’offre',
+        outcome: 'Une offre ferme arrive dans Transferts (environ 1,3 fois la valeur du joueur).',
+        apply: (s, c, _r, ids) => {
+          if (!c.player || !c.club) return 'L’intérêt retombe.';
+          const amount = roundMoney(marketValue(c.player) * 1.3);
+          s.offers.push({ id: ids('o'), playerId: c.player.id, fromClubId: c.club.id, amount, week: s.currentWeek, status: 'pending' });
+          addNews(s, 'transfer', `Offre de ${c.club.name}`, `${c.club.name} propose ${millions(amount)} pour ${fullName(c.player)}.`, ids);
+          return `${millions(amount)} sur la table : à vous de répondre dans Transferts.`;
+        },
+      },
+      {
+        label: 'Intransférable',
+        outcome: 'Moral du joueur −8 (−3 s’il est Fidèle), confiance des supporters et de la direction +3.',
+        apply: (s, c) => {
+          morale(c.player, c.player && hasTrait(c.player, 'loyal') ? -3 : -8);
+          board(s, 3);
+          return 'Le message est clair : le joueur reste.';
+        },
+      },
+      {
+        label: 'Le convaincre de rester',
+        outcome: 'Moral du joueur +6, il devient Fidèle.',
+        requires: lifestyle('mentor', 'Mentor'),
+        apply: (_s, c) => {
+          morale(c.player, 6);
+          setTraits(c.player, ['loyal'], ['ambitious']);
+          return 'Une longue discussion, et le joueur se sent chez lui.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'scouting-abroad',
+    title: 'Mission de recrutement à l’étranger',
+    pickStaff: (s) => s.staff.find((m) => m.role === 'scout'),
+    pickClub: (s) => foreignClubs(s)[rotateIndex(s, Math.max(1, foreignClubs(s).length))],
+    condition: (s) => s.staff.some((m) => m.role === 'scout') && foreignClubs(s).length > 0,
+    text: (c) => `${name(c.staff)} propose dix jours en ${c.club ? leagueDef(c.club.leagueId).countryName : 'Europe'} pour observer les jeunes du championnat. « Là-bas, des talents dorment sur les bancs. »`,
+    options: [
+      {
+        label: 'Financer la mission (150 k€)',
+        outcome: 'Les 4 meilleurs espoirs de ce championnat sont bien connus (connaissance 80 %) et signalés dans Transferts.',
+        apply: (s, c) => {
+          if (!canPay(s, 150_000)) return tooPoor;
+          pay(s, 150_000, 'Mission de recrutement à l’étranger');
+          const league = c.club?.leagueId;
+          const clubs = new Set(s.clubs.filter((x) => x.leagueId === league).map((x) => x.id));
+          const targets = s.players
+            .filter((p) => p.clubId && clubs.has(p.clubId) && p.age <= 22)
+            .sort((a, b) => b.potential - a.potential)
+            .slice(0, 4);
+          targets.forEach((p) => {
+            s.scouting.knowledge[p.id] = Math.max(s.scouting.knowledge[p.id] ?? 0, 80);
+            p.scoutedBy = `Mission ${leagueDef(league).short}`;
+          });
+          opinion(c.staff, 5);
+          return targets.length ? `Rapports reçus : ${targets.map((p) => fullName(p)).join(', ')}.` : 'Peu de talents cette fois-ci.';
+        },
+      },
+      {
+        label: 'Se concentrer sur le marché local',
+        outcome: 'Opinion du recruteur −4.',
+        apply: (_s, c) => {
+          opinion(c.staff, -4);
+          return 'Le recruteur range sa valise, un peu déçu.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'summer-tournament',
+    title: 'Invitation à un tournoi international',
+    pickClub: (s) => foreignClubs(s).sort((a, b) => b.reputation - a.reputation)[0],
+    condition: (s) => s.currentWeek >= 2 && s.currentWeek <= 20 && foreignClubs(s).length > 0,
+    text: (c) => `${c.club?.name ?? 'Un grand club étranger'} vous invite à son tournoi de mi-saison, retransmis dans tout le continent. Prestige garanti, jambes lourdes aussi.`,
+    options: [
+      {
+        label: 'Accepter (cachet de 600 k€)',
+        outcome: '+600 k€, recettes +3 % pendant 10 semaines, mais fatigue +12 pour l’effectif.',
+        apply: (s, _c, _r, ids) => {
+          addMoney(s, s.userClubId, 'sponsor', 600_000, 'Tournoi international');
+          modifier(s, ids, 'Vitrine internationale', { income: 0.03 }, 10);
+          userSquad(s).forEach((p) => (p.fatigue = clamp(p.fatigue + 12, 0, 100)));
+          return 'Le club se fait un nom au-delà des frontières.';
+        },
+      },
+      {
+        label: 'Envoyer les jeunes',
+        outcome: '+200 k€, progression des jeunes +10 % pendant 8 semaines.',
+        apply: (s, _c, _r, ids) => {
+          addMoney(s, s.userClubId, 'sponsor', 200_000, 'Tournoi international (équipe réserve)');
+          modifier(s, ids, 'Tournoi des jeunes', { youthGrowth: 0.1 }, 8);
+          return 'Les jeunes découvrent le haut niveau européen.';
+        },
+      },
+      {
+        label: 'Décliner',
+        outcome: 'Récupération +5 % pendant 4 semaines.',
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Repos', { recovery: 0.05 }, 4);
+          return 'Le staff médical vous remercie.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'relegation-fire-sale',
+    title: 'Les soldes d’un relégable',
+    pickClub: (s) => {
+      const table = computeStandings(leagueClubs(s, myLeague(s).id).map((c) => c.id), s.fixtures);
+      const last = table[table.length - 1];
+      return last && last.clubId !== s.userClubId ? clubById(s, last.clubId) : undefined;
+    },
+    condition: (s) => !!myLeague(s).down && s.currentWeek >= Math.floor(s.weeks.length * 0.6) && leaguePosition(s) < leagueSize(s),
+    text: (c) => `${c.club?.name ?? 'Le dernier du championnat'} se prépare à la descente et cherche à vendre ses meilleurs joueurs. Son président vous appelle en premier.`,
+    options: [
+      {
+        label: 'Avoir la primeur',
+        outcome: 'Les 2 meilleurs joueurs du club sont mis en vente, bien connus de vos recruteurs, avec une remise de 15 % pendant 4 semaines.',
+        apply: (s, c, _r, ids) => {
+          if (!c.club) return 'L’appel tourne court.';
+          const best = byRating(squadOf(s, c.club.id)).slice(0, 2);
+          best.forEach((p) => {
+            p.transferListed = true;
+            s.scouting.knowledge[p.id] = Math.max(s.scouting.knowledge[p.id] ?? 0, 85);
+          });
+          modifier(s, ids, 'Soldes de fin de saison', { feeDiscount: 0.15 }, 4);
+          return `${best.map((p) => fullName(p)).join(' et ')} sont à vendre.`;
+        },
+      },
+      {
+        label: 'Pas de charognards ici',
+        outcome: 'Confiance de la direction +2.',
+        apply: (s) => {
+          board(s, 2);
+          return 'Vous restez concentré sur votre propre saison.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'tv-rights-abroad',
+    title: 'Vos matchs diffusés à l’étranger',
+    condition: (s) => leaguePosition(s) <= 6 && s.currentWeek >= 8,
+    text: (_c, s) => `Une chaîne étrangère veut diffuser les matchs de ${userClub(s).name}. Elle demande en échange des horaires de coup d’envoi adaptés à son public.`,
+    options: [
+      {
+        label: 'Signer',
+        outcome: 'Recettes +6 % pendant 12 semaines, mais récupération −5 % (horaires décalés).',
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Diffusion internationale', { income: 0.06, recovery: -0.05 }, 12);
+          return 'Le club gagne des fans à l’autre bout du continent.';
+        },
+      },
+      {
+        label: 'Négocier des horaires normaux',
+        outcome: 'Recettes +3 % pendant 12 semaines.',
+        requires: lifestyle('negotiator', 'Négociateur'),
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Diffusion internationale', { income: 0.03 }, 12);
+          return 'Un accord gagnant-gagnant.';
+        },
+      },
+      {
+        label: 'Refuser',
+        outcome: 'Aucun effet.',
+        apply: () => 'Les horaires restent ceux des supporters.',
+      },
+    ],
+  },
+  {
+    id: 'homesick-import',
+    title: 'Le mal du pays',
+    pickPlayer: (s) => {
+      const country = myLeague(s).country;
+      return userSquad(s).find((p) => p.nationality !== country && p.age <= 24 && p.morale < 70);
+    },
+    condition: (s) => userSquad(s).some((p) => p.nationality !== myLeague(s).country && p.age <= 24 && p.morale < 70),
+    text: (c) => `${pname(c)}, arrivé de l’étranger, peine à s’adapter : la langue, le climat, la cuisine. Ses performances à l’entraînement s’en ressentent.`,
+    options: [
+      {
+        label: 'Faire venir sa famille (50 k€)',
+        outcome: 'Moral du joueur +15, forme +1.',
+        apply: (s, c) => {
+          if (!canPay(s, 50_000)) return tooPoor;
+          pay(s, 50_000, 'Installation de la famille d’un joueur');
+          morale(c.player, 15);
+          if (c.player) c.player.form = clamp(c.player.form + 1, 0, 10);
+          return 'Il retrouve le sourire.';
+        },
+      },
+      {
+        label: 'Lui trouver un parrain dans le vestiaire',
+        outcome: 'Moral du joueur +8 ; un Meneur dans l’effectif rend l’effet plus fort (+12).',
+        apply: (s, c) => {
+          morale(c.player, withTrait(s, 'leader').length ? 12 : 8);
+          return 'Un coéquipier le prend sous son aile.';
+        },
+      },
+      {
+        label: 'Le prêter dans son pays',
+        outcome: 'Le joueur est indisponible 6 semaines mais revient avec +2 en note.',
+        apply: (s, c) => {
+          if (!c.player) return '';
+          sideline(c.player, 6, 'Prêté dans son pays');
+          c.player.rating = Math.min(c.player.potential, c.player.rating + 2);
+          morale(c.player, 10);
+          return 'Six semaines au pays pour mieux revenir.';
         },
       },
     ],

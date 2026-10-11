@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { LEAGUE_NAME } from '../../core/data/clubs.data';
+import { leagueDef, LEAGUES } from '../../core/data/leagues.data';
 import { wageBill } from '../../core/engine/finance';
 import { squadRating } from '../../core/engine/lineup';
 import { createNewGame } from '../../core/engine/new-game';
@@ -22,16 +22,19 @@ import { MoneyPipe } from '../../shared/pipes/money.pipe';
 export class ClubSelectComponent {
   private readonly game = inject(GameService);
 
-  protected readonly leagueName = LEAGUE_NAME;
+  protected readonly leagues = LEAGUES;
+  /** Championnat affiché dans la liste. */
+  protected readonly leagueId = signal('fr1');
+  protected readonly league = computed(() => leagueDef(this.leagueId()));
   protected readonly groupOf = POSITION_GROUP;
   protected readonly managerName = signal('');
   /** Le monde est généré une fois pour l'aperçu, puis recréé à l'identique avec la même graine. */
   private readonly seed = signal((Math.random() * 2 ** 32) >>> 0);
-  private readonly preview = computed(() => createNewGame('', 'olv', this.seed()));
+  protected readonly preview = computed(() => createNewGame('', 'olv', this.seed()));
 
   protected readonly clubs = computed(() => {
     const world = this.preview();
-    const rows = world.clubs.map((club) => {
+    const rows = world.clubs.filter((c) => c.leagueId === this.leagueId()).map((club) => {
       const squad = squadOf(world, club.id);
       return {
         club,
@@ -50,11 +53,19 @@ export class ClubSelectComponent {
   protected readonly keyPlayers = computed(() => [...this.selected().squad].sort((a, b) => b.rating - a.rating).slice(0, 6));
   protected readonly expectation = computed(() => {
     const rank = this.selectedRank();
+    const league = this.league();
+    if (league.up) return rank <= 4 ? 'Jouer la montée' : rank <= 10 ? 'Viser le haut de tableau' : 'Assurer une saison sereine';
     if (rank <= 2) return 'Jouer le titre';
     if (rank <= 5) return 'Finir sur le podium ou tout près';
     if (rank <= 10) return 'Viser la première moitié de tableau';
     return 'Assurer le maintien';
   });
+
+  protected pickLeague(id: string): void {
+    this.leagueId.set(id);
+    const first = this.clubs()[Math.floor(this.clubs().length / 2)];
+    if (first) this.selectedId.set(first.club.id);
+  }
 
   protected select(id: string): void {
     this.selectedId.set(id);

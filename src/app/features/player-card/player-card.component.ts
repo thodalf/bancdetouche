@@ -1,3 +1,4 @@
+import { leagueDef } from '../../core/data/leagues.data';
 import { ChangeDetectionStrategy, Component, computed, effect, ElementRef, inject, viewChild } from '@angular/core';
 import { marketValue } from '../../core/engine/valuation';
 import { PLAYER_TRAITS, playerTraits, POSITION_GROUP, Position, SQUAD_STATUS_LABELS } from '../../core/models';
@@ -35,6 +36,7 @@ const POSITION_NAMES: Record<Position, string> = {
   styleUrl: './player-card.component.scss',
 })
 export class PlayerCardComponent {
+  protected readonly leagueOf = leagueDef;
   protected readonly card = inject(PlayerCardService);
   protected readonly store = inject(GameStore);
   private readonly transfers = inject(TransferService);

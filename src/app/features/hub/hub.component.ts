@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { CUP_NAME, LEAGUE_NAME } from '../../core/data/clubs.data';
 import { fixtureWinner } from '../../core/engine/schedule';
 import { cupWinner } from '../../core/engine/season';
 import { Club, Fixture, NewsKind } from '../../core/models';
@@ -26,8 +25,8 @@ export class HubComponent {
   protected readonly week = inject(WeekService);
   protected readonly store = inject(GameStore);
   protected readonly game = inject(GameService);
-  protected readonly leagueName = LEAGUE_NAME;
-  protected readonly cupName = CUP_NAME;
+  protected readonly leagueName = computed(() => this.store.userLeague().name);
+  protected readonly cupName = this.store.userCupName;
 
   protected readonly kindLabels: Record<NewsKind, string> = {
     board: 'Direction',

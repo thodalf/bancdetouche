@@ -1,4 +1,4 @@
-import { NAME_POOLS } from '../data/names.data';
+import { LEAGUE_NATIONALITY_BIAS, NAME_POOLS, NamePool } from '../data/names.data';
 import { emptyStats, Player, Position, SquadStatus } from '../models';
 import { Rng } from './rng';
 import { expectedWage } from './valuation';
@@ -32,10 +32,29 @@ export interface PlayerSpec {
   meanRating: number;
   clubId: string | null;
   age?: number;
+  /** Pays du championnat : les noms et nationalités suivent ses habitudes de recrutement. */
+  country?: string;
+}
+
+const poolWeightCache = new Map<string, number[]>();
+/** Poids des réservoirs de noms pour un pays de championnat. */
+function poolWeights(country = 'FRA'): number[] {
+  let w = poolWeightCache.get(country);
+  if (!w) {
+    const bias = LEAGUE_NATIONALITY_BIAS[country] ?? {};
+    w = NAME_POOLS.map((p) => p.weight * (bias[p.nationality] ?? 1));
+    poolWeightCache.set(country, w);
+  }
+  return w;
+}
+
+export function pickNamePool(rng: Rng, country?: string): NamePool {
+  const weights = poolWeights(country);
+  return rng.weighted(NAME_POOLS.map((pool, i) => ({ pool, w: weights[i] })), (x) => x.w).pool;
 }
 
 export function createPlayer(rng: Rng, spec: PlayerSpec): Player {
-  const pool = rng.weighted(NAME_POOLS, (p) => p.weight);
+  const pool = pickNamePool(rng, spec.country);
   const age = spec.age ?? randomAge(rng);
   // Les très jeunes et les vétérans sont légèrement en dessous de la moyenne.
   const agePenalty = age <= 20 ? -5 : age >= 33 ? -2 : 0;

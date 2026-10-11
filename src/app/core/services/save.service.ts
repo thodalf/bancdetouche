@@ -1,8 +1,14 @@
 import { Injectable, signal } from '@angular/core';
+import { compressToUTF16, decompressFromUTF16 } from 'lz-string';
 import { migrate } from '../engine/migrations';
 import { GameState, SCHEMA_VERSION } from '../models';
 
 const STORAGE_KEY = 'banc-de-touche.save';
+const SUMMARY_KEY = 'banc-de-touche.summary';
+/** Préfixe d'une sauvegarde compressée (lz-string) ; sans préfixe, c'est du JSON (anciennes versions). */
+const PACKED = 'LZ1:';
+/** Délai avant d'écrire une sauvegarde automatique : les changements rapprochés sont regroupés. */
+const AUTOSAVE_DELAY = 900;
 
 export interface SaveSummary {
   managerName: string;
@@ -13,43 +19,121 @@ export interface SaveSummary {
   savedAt: string;
 }
 
-/** Persistance de la partie dans le localStorage, avec export/import JSON. */
+/**
+ * Persistance de la partie dans le localStorage, avec export/import JSON.
+ * La partie est compressée (environ 13 fois plus petite) dans un Web Worker, pour que le monde
+ * complet (6 championnats, plus de 2 500 joueurs) tienne largement dans le stockage du navigateur
+ * sans bloquer l'interface.
+ */
 @Injectable({ providedIn: 'root' })
 export class SaveService {
   readonly summary = signal<SaveSummary | null>(this.readSummary());
   readonly lastSavedAt = signal<string | null>(null);
   readonly error = signal<string | null>(null);
 
-  save(state: GameState): boolean {
-    try {
-      const savedAt = new Date().toISOString();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, savedAt }));
-      this.lastSavedAt.set(savedAt);
-      this.summary.set(this.summarize({ ...state, savedAt }));
-      this.error.set(null);
-      return true;
-    } catch {
-      this.error.set('Sauvegarde impossible : le stockage du navigateur est plein ou désactivé.');
-      return false;
+  private worker: Worker | null = null;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private pending: GameState | null = null;
+  private seq = 0;
+
+  constructor() {
+    if (typeof Worker !== 'undefined') {
+      try {
+        this.worker = new Worker(new URL('./save.worker', import.meta.url), { type: 'module' });
+        this.worker.onmessage = ({ data }: MessageEvent<{ id: number; packed: string }>) => {
+          // Une écriture plus récente a pu être demandée entre-temps : seule la dernière compte.
+          if (data.id === this.seq) this.write(PACKED + data.packed);
+        };
+      } catch {
+        this.worker = null;
+      }
     }
+    // En quittant la page, une sauvegarde en attente est écrite immédiatement.
+    if (typeof addEventListener !== 'undefined') addEventListener('pagehide', () => this.flush());
+  }
+
+  /** Sauvegarde automatique : différée et compressée hors du fil principal. */
+  saveSoon(state: GameState): void {
+    this.pending = state;
+    this.summary.set(this.summarize(state));
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.saveAsync(), AUTOSAVE_DELAY);
+  }
+
+  /** Sauvegarde immédiate (bouton, import, sortie de partie). */
+  save(state: GameState): boolean {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.pending = null;
+    this.seq++;
+    return this.write(PACKED + compressToUTF16(this.serialize(state)), state);
+  }
+
+  /** Écrit tout de suite une sauvegarde automatique en attente. */
+  flush(): void {
+    if (this.pending) this.save(this.pending);
   }
 
   load(): GameState | null {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? this.parse(raw) : null;
+      if (!raw) return null;
+      const json = raw.startsWith(PACKED) ? decompressFromUTF16(raw.slice(PACKED.length)) : raw;
+      return json ? this.parse(json) : null;
     } catch {
       return null;
     }
   }
 
   delete(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.pending = null;
+    this.seq++;
     try {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(SUMMARY_KEY);
     } catch {
       /* stockage indisponible */
     }
     this.summary.set(null);
+  }
+
+  private saveAsync(): void {
+    const state = this.pending;
+    this.timer = null;
+    if (!state) return;
+    this.pending = null;
+    if (!this.worker) {
+      this.save(state);
+      return;
+    }
+    this.lastState = state;
+    this.worker.postMessage({ id: ++this.seq, json: this.serialize(state) });
+  }
+
+  private lastState: GameState | null = null;
+
+  private serialize(state: GameState): string {
+    return JSON.stringify({ ...state, savedAt: new Date().toISOString() });
+  }
+
+  private write(packed: string, state: GameState | null = this.lastState): boolean {
+    try {
+      localStorage.setItem(STORAGE_KEY, packed);
+      const savedAt = new Date().toISOString();
+      if (state) {
+        const summary = this.summarize({ ...state, savedAt });
+        localStorage.setItem(SUMMARY_KEY, JSON.stringify(summary));
+        this.summary.set(summary);
+      }
+      this.lastSavedAt.set(savedAt);
+      this.error.set(null);
+      return true;
+    } catch {
+      this.error.set('Sauvegarde impossible : le stockage du navigateur est plein ou désactivé.');
+      return false;
+    }
   }
 
   /** Télécharge la partie au format JSON. */
@@ -79,6 +163,12 @@ export class SaveService {
   }
 
   private readSummary(): SaveSummary | null {
+    try {
+      const raw = localStorage.getItem(SUMMARY_KEY);
+      if (raw) return JSON.parse(raw) as SaveSummary;
+    } catch {
+      /* résumé illisible : on relit la partie */
+    }
     const s = this.load();
     return s ? this.summarize(s) : null;
   }

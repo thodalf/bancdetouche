@@ -27,7 +27,7 @@ export class GameService {
     effect(() => {
       const state = this.store.state();
       const enabled = this.autosave();
-      if (state && enabled) untracked(() => this.saves.save(state));
+      if (state && enabled) untracked(() => this.saves.saveSoon(state));
     });
     effect(() => {
       const enabled = this.autosave();

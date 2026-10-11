@@ -41,6 +41,8 @@ export interface Fixture {
   played: boolean;
   homeGoals: number;
   awayGoals: number;
+  /** Coupe nationale (code du pays) pour un match de coupe. */
+  cup?: string;
   /** Tirs au but en coupe si match nul. */
   penalties?: { home: number; away: number };
   events: MatchEvent[];
@@ -73,4 +75,6 @@ export interface StandingRow {
   form: ('W' | 'D' | 'L')[];
 }
 
-export const CUP_ROUND_LABELS = ['Huitièmes de finale', 'Quarts de finale', 'Demi-finales', 'Finale'];
+/** Tours de coupe : la coupe de France (32 clubs) commence en seizièmes, les autres (16 clubs) en huitièmes. */
+export const CUP_ROUND_LABELS = ['Seizièmes de finale', 'Huitièmes de finale', 'Quarts de finale', 'Demi-finales', 'Finale'];
+export const CUP_FINAL_ROUND = CUP_ROUND_LABELS.length - 1;

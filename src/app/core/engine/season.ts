@@ -1,5 +1,5 @@
-import { CUP_NAME, LEAGUE_NAME } from '../data/clubs.data';
-import { CUP_ROUND_LABELS, Fixture, GameState, Player, tacticSlots } from '../models';
+import { CUP_NAMES, leagueDef, LEAGUES } from '../data/leagues.data';
+import { CUP_FINAL_ROUND, CUP_ROUND_LABELS, Fixture, GameState, Player, tacticSlots } from '../models';
 import { seasonEndYouth, YOUTH_INTAKE_WEEK, youthDevelopment, youthIntake } from './academy';
 import { boardAfterMatch, boardReview, boardSeasonReview, objectiveStatus, shouldSack } from './board';
 import { addXp, weeklyMissions, XP } from './boosters';
@@ -17,8 +17,8 @@ import { learnFromMatch, weeklyScouting } from './scouting';
 import { computeStandings } from './standings';
 import { formatM, weeklyMarket } from './transfers';
 import { expectedWage } from './valuation';
-import { addMoney, addNews, clubById, fullName, generateFreeAgents, IdGen, squadOf, youthOf } from './world';
-import { startSeason } from './new-game';
+import { addMoney, addNews, clubById, countries, fullName, generateFreeAgents, IdGen, leagueClubs, leagueOfClub, squadOf, userLeague, youthOf } from './world';
+import { FREE_AGENTS, startSeason } from './new-game';
 import { refreshStaffMarket, seasonStaff, staffAfterMatch, totalEffects, weeklyStaff, fx } from './characters';
 import { maybeTriggerEvent, tickModifiers } from './events';
 import { applyTrainingWeek, weekMatchEffect } from './week';
@@ -32,9 +32,9 @@ export function userFixtureOfWeek(s: GameState, week = s.currentWeek): Fixture |
 }
 
 /** Données d'une équipe pour le moteur de match. Les clubs IA choisissent leur meilleur onze du moment. */
-export function sideInput(s: GameState, clubId: string): SideInput {
+export function sideInput(s: GameState, clubId: string, squads?: Map<string, Player[]>): SideInput {
   const club = clubById(s, clubId);
-  const squad = squadOf(s, clubId);
+  const squad = squads?.get(clubId) ?? squadOf(s, clubId);
   const userControlled = clubId === s.userClubId && !s.manager.unemployed;
   const lineup = userControlled ? repairLineup(club.tactic, squad) : autoPickLineup(squad, tacticSlots(club.tactic));
   const input: SideInput = { clubId, name: club.name, tactic: { ...club.tactic, lineup }, squad, morale: club.morale, injuryRisk: injuryRiskFor(club), aiControlled: !userControlled };
@@ -52,25 +52,47 @@ export function sideInput(s: GameState, clubId: string): SideInput {
   return input;
 }
 
-export function createMatch(s: GameState, f: Fixture, rng: Rng): MatchSimulation {
-  return new MatchSimulation(sideInput(s, f.homeId), sideInput(s, f.awayId), rng, f.competition === 'league');
+export function createMatch(s: GameState, f: Fixture, rng: Rng, squads?: Map<string, Player[]>): MatchSimulation {
+  return new MatchSimulation(sideInput(s, f.homeId, squads), sideInput(s, f.awayId, squads), rng, f.competition === 'league');
 }
 
 /** Graine dédiée au match de l'utilisateur, pour ne pas consommer l'aléa global pendant le direct. */
 export const userMatchSeed = (s: GameState) => (s.rngSeed ^ ((s.currentWeek + 1) * 2654435761)) >>> 0;
 
-function applyResult(s: GameState, f: Fixture, r: MatchResult, rng: Rng, ids: IdGen): void {
+/** Index des joueurs, construit une fois par semaine pour appliquer tous les résultats. */
+interface WeekIndex {
+  byId: Map<string, Player>;
+  squads: Map<string, Player[]>;
+}
+
+function weekIndex(s: GameState): WeekIndex {
+  const byId = new Map<string, Player>();
+  const squads = new Map<string, Player[]>();
+  for (const p of s.players) {
+    byId.set(p.id, p);
+    if (p.clubId && !p.youth) {
+      const list = squads.get(p.clubId);
+      if (list) list.push(p);
+      else squads.set(p.clubId, [p]);
+    }
+  }
+  return { byId, squads };
+}
+
+function applyResult(s: GameState, f: Fixture, r: MatchResult, rng: Rng, ids: IdGen, index: WeekIndex = weekIndex(s)): void {
   f.played = true;
   f.homeGoals = r.homeGoals;
   f.awayGoals = r.awayGoals;
   f.penalties = r.penalties;
   f.stats = r.stats;
-  f.ratings = r.ratings;
   const isUserMatch = f.homeId === s.userClubId || f.awayId === s.userClubId;
+  // Les notes ne sont gardées que pour le match de l'entraîneur (taille de la sauvegarde).
+  f.ratings = isUserMatch ? r.ratings : undefined;
   // On ne garde le détail des événements que pour les matchs du joueur (taille de la sauvegarde).
-  f.events = isUserMatch ? r.events : r.events.filter((e) => e.type === 'goal' || e.type === 'red');
+  // Matchs des autres clubs : seuls buts et expulsions sont gardés, sans le texte (rédigé à l'affichage).
+  f.events = isUserMatch ? r.events : r.events.filter((e) => e.type === 'goal' || e.type === 'red').map((e) => ({ ...e, text: '' }));
 
-  const byId = new Map(s.players.map((p) => [p.id, p]));
+  const byId = index.byId;
   const participants = new Set(r.participants);
   for (const id of r.participants) {
     const p = byId.get(id);
@@ -111,7 +133,7 @@ function applyResult(s: GameState, f: Fixture, r: MatchResult, rng: Rng, ids: Id
     const result: 'W' | 'D' | 'L' = winner === null ? 'D' : winner === club.id ? 'W' : 'L';
     const delta = result === 'D' ? 1 : result === 'W' ? 5 + diff : -4 - diff;
     club.morale = clamp(club.morale + delta, 15, 98);
-    for (const p of squadOf(s, club.id)) {
+    for (const p of index.squads.get(club.id) ?? []) {
       const before = p.morale;
       updateMoraleAfterMatch(p, participants.has(p.id), result, r.ratings[p.id]);
       if (club.id === s.userClubId && before >= 30 && p.morale < 30) {
@@ -161,19 +183,20 @@ export function completeWeek(s: GameState, rng: Rng, ids: IdGen, userResult?: { 
     }
   });
 
+  const index = weekIndex(s);
   for (const f of fixturesOfWeek(s, week.index)) {
     if (f.played) continue;
-    const result = userResult && userResult.fixtureId === f.id ? userResult.result : createMatch(s, f, rng).runToEnd();
-    applyResult(s, f, result, rng, ids);
+    const result = userResult && userResult.fixtureId === f.id ? userResult.result : createMatch(s, f, rng, index.squads).runToEnd();
+    applyResult(s, f, result, rng, ids, index);
   }
 
   // Finances hebdomadaires de tous les clubs.
   const effects = totalEffects(s);
   for (const club of s.clubs) {
     const isUser = club.id === s.userClubId;
-    const income = isUser ? 1 + (effects.income ?? 0) : 1;
+    const income = (isUser ? 1 + (effects.income ?? 0) : 1) * leagueDef(club.leagueId).wealth;
     addMoney(s, club.id, 'sponsor', Math.round(weeklySponsor(club) * income), 'Sponsors et partenariats');
-    addMoney(s, club.id, 'wages', -wageBill(squadOf(s, club.id)), 'Salaires des joueurs');
+    addMoney(s, club.id, 'wages', -wageBill(index.squads.get(club.id) ?? []), 'Salaires des joueurs');
     const youthWages = wageBill(youthOf(s, club.id));
     if (youthWages) addMoney(s, club.id, 'wages', -youthWages, 'Salaires du centre de formation');
     addMoney(s, club.id, 'wages', -runningCosts(club), 'Frais de fonctionnement');
@@ -181,7 +204,7 @@ export function completeWeek(s: GameState, rng: Rng, ids: IdGen, userResult?: { 
     if (week.competition === 'league') addMoney(s, club.id, 'tv', Math.round(tvRights(club) * income), 'Droits TV');
   }
 
-  if (week.competition === 'cup') progressCup(s, week.round, rng, ids);
+  if (week.competition === 'cup') countries().forEach((country) => progressCup(s, country, week.round, rng, ids));
 
   // Physique, progression et formation.
   const clubs = new Map(s.clubs.map((c) => [c.id, c]));
@@ -207,7 +230,7 @@ export function completeWeek(s: GameState, rng: Rng, ids: IdGen, userResult?: { 
   weeklyScouting(s, rng, ids);
   // Staff, missions de recrutement, effets temporaires et événements à choix.
   if (!s.manager.unemployed) {
-    const pos = computeStandings(s.clubs.map((c) => c.id), s.fixtures).findIndex((r) => r.clubId === s.userClubId) + 1;
+    const pos = leagueTable(s, userLeague(s).id).findIndex((r) => r.clubId === s.userClubId) + 1;
     const target = s.board.objectives.find((o) => o.kind === 'league')?.target ?? 8;
     weeklyStaff(s, rng, ids, pos <= target);
     weeklyMissions(s, rng, ids);
@@ -229,53 +252,109 @@ export function completeWeek(s: GameState, rng: Rng, ids: IdGen, userResult?: { 
   if (isSeasonOver(s)) endSeason(s, rng, ids);
 }
 
-function progressCup(s: GameState, round: number, rng: Rng, ids: IdGen): void {
-  const roundFixtures = s.fixtures.filter((f) => f.competition === 'cup' && s.weeks[f.week].round === round);
+/** Classement d'un championnat. */
+export function leagueTable(s: GameState, leagueId: string) {
+  return computeStandings(leagueClubs(s, leagueId).map((c) => c.id), s.fixtures, (id) => clubById(s, id).name);
+}
+
+export const cupName = (country: string) => CUP_NAMES[country] ?? 'Coupe nationale';
+
+function progressCup(s: GameState, country: string, round: number, rng: Rng, ids: IdGen): void {
+  const roundFixtures = s.fixtures.filter((f) => f.competition === 'cup' && (f.cup ?? 'FRA') === country && s.weeks[f.week].round === round);
+  if (!roundFixtures.length) return;
+  const name = cupName(country);
   const winners = roundFixtures.map(fixtureWinner).filter((x): x is string => !!x);
-  winners.forEach((id) => addMoney(s, id, 'prize', CUP_PRIZES[round] ?? 0, `Prime ${CUP_NAME} (${CUP_ROUND_LABELS[round]})`));
+  const wealth = leagueDef(clubById(s, roundFixtures[0].homeId).leagueId).wealth;
+  winners.forEach((id) => addMoney(s, id, 'prize', Math.round((CUP_PRIZES[round] ?? 0) * wealth), `Prime ${name} (${CUP_ROUND_LABELS[round]})`));
   if (winners.includes(s.userClubId)) addXp(s, XP.cupRound, ids);
   const userOut = roundFixtures.some((f) => (f.homeId === s.userClubId || f.awayId === s.userClubId) && fixtureWinner(f) !== s.userClubId);
-  if (userOut) addNews(s, 'match', `Élimination en ${CUP_NAME}`, `Votre parcours s'arrête au stade : ${CUP_ROUND_LABELS[round].toLowerCase()}.`, ids);
+  if (userOut) addNews(s, 'match', `Élimination en ${name}`, `Votre parcours s'arrête au stade : ${CUP_ROUND_LABELS[round].toLowerCase()}.`, ids);
 
   if (winners.length === 1) {
     const champ = clubById(s, winners[0]);
-    addNews(s, 'season', `${champ.name} remporte la ${CUP_NAME} !`, `${champ.name} soulève le trophée et empoche ${formatM(CUP_PRIZES[round])}.`, ids);
+    if (country === leagueOfClub(s, s.userClubId).country || champ.id === s.userClubId)
+      addNews(s, 'season', `${champ.name} remporte la ${name} !`, `${champ.name} soulève le trophée et empoche ${formatM(Math.round(CUP_PRIZES[round] * wealth))}.`, ids);
     return;
   }
   const nextWeek = s.weeks.find((w) => w.competition === 'cup' && w.round === round + 1);
-  if (nextWeek) s.fixtures.push(...drawCupRound(winners, nextWeek.index, rng, () => ids('f')));
+  if (nextWeek) s.fixtures.push(...drawCupRound(winners, nextWeek.index, rng, () => ids('f'), country));
 }
 
-export function cupWinner(s: GameState): string | null {
-  const final = s.fixtures.find((f) => f.competition === 'cup' && s.weeks[f.week]?.round === CUP_ROUND_LABELS.length - 1);
+/** Vainqueur d'une coupe nationale (par défaut celle du pays de l'entraîneur). */
+export function cupWinner(s: GameState, country = leagueOfClub(s, s.userClubId).country): string | null {
+  const final = s.fixtures.find((f) => f.competition === 'cup' && (f.cup ?? 'FRA') === country && s.weeks[f.week]?.round === CUP_FINAL_ROUND);
   return final ? fixtureWinner(final) : null;
 }
 
 function endSeason(s: GameState, rng: Rng, ids: IdGen): void {
-  const table = computeStandings(s.clubs.map((c) => c.id), s.fixtures, (id) => clubById(s, id).name);
-  table.forEach((row, i) => addMoney(s, row.clubId, 'prize', leaguePrize(i + 1, table.length), `Prime de classement (${i + 1}e)`));
+  const champions: Record<string, string> = {};
+  const cupWinners: Record<string, string> = {};
+  for (const league of LEAGUES) {
+    const table = leagueTable(s, league.id);
+    if (!table.length) continue;
+    champions[league.id] = table[0].clubId;
+    table.forEach((row, i) => addMoney(s, row.clubId, 'prize', Math.round(leaguePrize(i + 1, table.length) * league.wealth), `Prime de classement (${i + 1}e)`));
+  }
+  for (const country of countries()) {
+    const w = cupWinner(s, country);
+    if (w) cupWinners[country] = w;
+  }
+  const league = userLeague(s);
+  const table = leagueTable(s, league.id);
   const userPos = table.findIndex((r) => r.clubId === s.userClubId) + 1;
   const champion = clubById(s, table[0].clubId);
   const cup = cupWinner(s);
-  s.history.push({ season: s.season, championId: champion.id, cupWinnerId: cup, userPosition: userPos, userClubId: s.userClubId });
-  addNews(s, 'season', `${champion.name} champion de ${LEAGUE_NAME} !`, `Fin de la saison ${s.season}-${s.season + 1}. Votre club termine à la ${userPos}e place.`, ids);
+  s.history.push({ season: s.season, championId: champion.id, cupWinnerId: cup, userPosition: userPos, userClubId: s.userClubId, userLeagueId: league.id, champions, cupWinners });
+  addNews(s, 'season', `${champion.name} champion de ${league.name} !`, `Fin de la saison ${s.season}-${s.season + 1}. Votre club termine à la ${userPos}e place.`, ids);
+  const abroad = LEAGUES.filter((l) => l.id !== league.id && champions[l.id])
+    .map((l) => `${l.flag} ${l.name} : ${clubById(s, champions[l.id]).name}`)
+    .join(' · ');
+  if (abroad) addNews(s, 'season', 'Les champions de la saison', abroad, ids);
   if (s.manager.unemployed) return;
   const achieved = s.board.objectives.filter((o) => objectiveStatus(s, o).status === 'achieved').length;
   addXp(s, achieved * XP.objective + (champion.id === s.userClubId ? XP.league : 0) + (cup === s.userClubId ? XP.cup : 0), ids);
   boardSeasonReview(s, ids);
   const leagueTarget = s.board.objectives.find((o) => o.kind === 'league')?.target ?? 8;
-  seasonEndCareer(s, userPos, leagueTarget, champion.id === s.userClubId, cup === s.userClubId, rng, ids);
+  seasonEndCareer(s, userPos, leagueTarget, champion.id === s.userClubId && league.tier === 1, cup === s.userClubId, rng, ids);
   if (s.board.confidence < 20) sackManager(s, rng, ids);
+}
+
+/** Montées et descentes entre championnats liés (les 3 derniers descendent, les 3 premiers montent). */
+function promotions(s: GameState, ids: IdGen): void {
+  for (const upper of LEAGUES) {
+    if (!upper.down || !upper.swap) continue;
+    const lower = leagueDef(upper.down);
+    const top = leagueTable(s, upper.id);
+    const bottom = leagueTable(s, lower.id);
+    if (!top.length || !bottom.length || !top[0].played || !bottom[0].played) continue;
+    const down = top.slice(-upper.swap).map((r) => clubById(s, r.clubId));
+    const up = bottom.slice(0, upper.swap).map((r) => clubById(s, r.clubId));
+    down.forEach((c) => {
+      c.leagueId = lower.id;
+      c.reputation = clamp(c.reputation - 3, 25, 99);
+    });
+    up.forEach((c) => {
+      c.leagueId = upper.id;
+      c.reputation = clamp(c.reputation + 4, 25, 99);
+    });
+    addNews(s, 'season', `Montées et descentes : ${upper.short} / ${lower.short}`,
+      `Promus en ${upper.name} : ${up.map((c) => c.name).join(', ')}. Relégués en ${lower.name} : ${down.map((c) => c.name).join(', ')}.`, ids);
+    if (down.some((c) => c.id === s.userClubId)) addNews(s, 'season', `Relégation en ${lower.name}`, 'Le club descend. La direction attend une remontée rapide.', ids);
+    if (up.some((c) => c.id === s.userClubId)) addNews(s, 'season', `Promotion en ${upper.name} !`, 'Le club monte ! Le public est en fête et la direction prépare une saison au plus haut niveau.', ids);
+  }
 }
 
 /** Intersaison : vieillissement, progression, fins de contrat, centre de formation, nouvelle saison. */
 export function startNextSeason(s: GameState, rng: Rng, ids: IdGen): void {
-  const table = computeStandings(s.clubs.map((c) => c.id), s.fixtures);
-  table.forEach((row, i) => {
-    const club = clubById(s, row.clubId);
-    const delta = i < 3 ? 2 : i >= table.length - 3 ? -2 : 0;
-    club.reputation = clamp(club.reputation + delta, 30, 99);
-  });
+  for (const league of LEAGUES) {
+    const table = leagueTable(s, league.id);
+    table.forEach((row, i) => {
+      const club = clubById(s, row.clubId);
+      const delta = i < 3 ? 2 : i >= table.length - 3 ? -2 : 0;
+      club.reputation = clamp(club.reputation + delta, 25, 99);
+    });
+  }
+  promotions(s, ids);
 
   const retired: Player[] = [];
   for (const p of s.players) {
@@ -320,15 +399,31 @@ export function startNextSeason(s: GameState, rng: Rng, ids: IdGen): void {
     const isUser = club.id === s.userClubId;
     const squad = squadOf(s, club.id);
     // Clubs IA : 2 jeunes formés au club chaque été. Utilisateur : uniquement de quoi éviter un effectif trop court.
-    const needed = isUser ? Math.max(0, 18 - squad.length) : Math.max(2, 22 - squad.length);
+    const needed = isUser ? Math.max(0, 18 - squad.length) : Math.max(2, 24 - squad.length);
     for (let i = 0; i < needed; i++) {
-      const p = createPlayer(rng, { id: ids('p'), position: rng.pick(SQUAD_TEMPLATE), meanRating: 50 + club.level * 3, clubId: club.id, age: rng.int(17, 19) });
+      const league = leagueDef(club.leagueId);
+      const p = createPlayer(rng, { id: ids('p'), position: rng.pick(SQUAD_TEMPLATE), meanRating: 50 + club.level * 3 + league.ratingOffset, clubId: club.id, age: rng.int(17, 19), country: league.country });
       p.potential = clamp(p.rating + rng.int(10, 28), p.rating, 92);
       p.homegrownClubId = club.id;
       p.squadStatus = 'prospect';
       s.players.push(p);
     }
-    const fresh = squadOf(s, club.id);
+    let fresh = squadOf(s, club.id);
+    // Clubs IA : au-delà de 28 joueurs, les moins utiles (les plus faibles, à âge égal les plus vieux) sont libérés.
+    if (!isUser && fresh.length > 28) {
+      const lineup = new Set(club.tactic.lineup);
+      [...fresh]
+        .filter((p) => !lineup.has(p.id))
+        .sort((a, b) => a.rating - b.rating || b.age - a.age)
+        .slice(0, fresh.length - 28)
+        .forEach((p) => {
+          p.clubId = null;
+          p.contractYears = 0;
+          p.transferListed = false;
+          p.releaseClause = null;
+        });
+      fresh = squadOf(s, club.id);
+    }
     if (!isUser) assignStatuses(fresh);
     const bill = wageBill(fresh);
     club.wageBudget = Math.max(club.wageBudget, Math.round(bill * 1.12));
@@ -337,8 +432,19 @@ export function startNextSeason(s: GameState, rng: Rng, ids: IdGen): void {
     club.tactic.lineup = isUser ? repairLineup(club.tactic, fresh) : autoPickLineup(fresh, club.tactic.formation);
   }
 
-  const freeCount = s.players.filter((p) => !p.clubId).length;
-  if (freeCount < 40) s.players.push(...generateFreeAgents(rng, ids, 40 - freeCount));
+  // Marché des joueurs libres : complété s'il s'épuise, élagué (retraites) s'il déborde.
+  const free = s.players.filter((p) => !p.clubId);
+  if (free.length < FREE_AGENTS) s.players.push(...generateFreeAgents(rng, ids, FREE_AGENTS - free.length));
+  else if (free.length > FREE_AGENTS * 1.5) {
+    const gone = new Set(
+      [...free]
+        .sort((a, b) => a.rating - a.age * 0.5 - (b.rating - b.age * 0.5))
+        .slice(0, free.length - FREE_AGENTS)
+        .map((p) => p.id),
+    );
+    s.players = s.players.filter((p) => !gone.has(p.id));
+    s.scouting.assignments = s.scouting.assignments.filter((id) => !gone.has(id));
+  }
 
   s.season++;
   startSeason(s, rng, ids);

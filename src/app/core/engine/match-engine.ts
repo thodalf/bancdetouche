@@ -71,6 +71,10 @@ interface SideState {
   energy: number;
   /** Condition physique de chaque joueur entré en jeu (100 = frais). */
   stamina: Map<string, number>;
+  /** Facteur « jambes » de la minute (condition moyenne du onze), recalculé à chaque minute. */
+  legs: number;
+  /** Effectif indexé (il ne change pas pendant le match). */
+  byId: Map<string, Player>;
   /** Dernier plan de jeu adopté par l'IA (évite de répéter le même changement). */
   aiPlan?: GamePlanId;
   /** Dernière règle de scénario appliquée (consignes conditionnelles de l'entraîneur). */
@@ -259,7 +263,7 @@ export class MatchSimulation {
   /** Joueurs actuellement sur le terrain (dans l'ordre des postes de la formation). */
   onField(side: Side): PitchPlayer[] {
     const s = this.sides[side];
-    const byId = new Map(s.input.squad.map((p) => [p.id, p]));
+    const byId = s.byId;
     return s.lineup
       .map((id, i) => (id && byId.get(id) ? { player: byId.get(id)!, role: s.roles[i], slot: i, yellow: s.yellows.has(id), stamina: this.staminaOf(side, id) } : null))
       .filter((x): x is PitchPlayer => !!x);
@@ -363,6 +367,8 @@ export class MatchSimulation {
       instructions: { ...DEFAULT_INSTRUCTIONS, ...input.tactic.instructions },
       energy: 100,
       stamina: new Map(input.squad.filter((p) => starters.has(p.id)).map((p) => [p.id, startingStamina(p)])),
+      legs: 1,
+      byId: new Map(input.squad.map((p) => [p.id, p])),
       talkBoost: 0,
       talked: false,
       subsUsed: 0,
@@ -400,6 +406,9 @@ export class MatchSimulation {
         const cur = s.stamina.get(x.p.id) ?? startingStamina(x.p);
         s.stamina.set(x.p.id, Math.max(15, cur - (drain + 0.05) * age * role));
       }
+      const field = this.onPitch(side);
+      const avg = field.reduce((sum, x) => sum + (s.stamina.get(x.p.id) ?? 100), 0) / Math.max(1, field.length);
+      s.legs = 0.95 + (avg / 100) * 0.05;
     }
   }
 
@@ -485,10 +494,7 @@ export class MatchSimulation {
     const mod = key === 'attack' ? m.att : key === 'defense' ? m.def : key === 'midfield' ? m.mid : 1;
     const energy = 0.88 + (s.energy / 100) * 0.12;
     // Des joueurs à bout de souffle pèsent moins : un changement frais a un vrai effet.
-    const field = this.onPitch(side);
-    const avg = field.reduce((sum, x) => sum + (s.stamina.get(x.p.id) ?? 100), 0) / Math.max(1, field.length);
-    const legs = 0.95 + (avg / 100) * 0.05;
-    return s.strength[key] * morale * home * mod * energy * legs * (1 + (s.input.boost ?? 0) + s.talkBoost);
+    return s.strength[key] * morale * home * mod * energy * s.legs * (1 + (s.input.boost ?? 0) + s.talkBoost);
   }
 
   private playMinute(): void {
@@ -669,7 +675,7 @@ export class MatchSimulation {
 
   private onPitch(side: Side): { p: Player; role: Position }[] {
     const s = this.sides[side];
-    const byId = new Map(s.input.squad.map((p) => [p.id, p]));
+    const byId = s.byId;
     return s.lineup
       .map((id, i) => (id ? { p: byId.get(id)!, role: s.roles[i] } : null))
       .filter((x): x is { p: Player; role: Position } => !!x && !!x.p);

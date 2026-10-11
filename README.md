@@ -16,11 +16,32 @@ npm run build        # build de production dans dist/foot-manager/browser
 
 Le routage utilise le hash (`#/jeu/...`) : le dossier `dist/foot-manager/browser` peut être servi tel quel par n'importe quel serveur statique.
 
+## Le monde du jeu
+
+Six championnats fictifs de 16 clubs (96 clubs au total), joués en même temps, semaine après semaine :
+
+| Championnat | Pays | Niveau | Particularités |
+| --- | --- | --- | --- |
+| Division Élite | 🇫🇷 France | 1re division | Les 3 derniers descendent |
+| Division Excellence | 🇫🇷 France | 2e division | Les 3 premiers montent ; budgets modestes, effectifs plus faibles |
+| Premier Division d’Albion | Albion (Angleterre) | 1re division | Le championnat le plus riche |
+| Liga Ibérica | Ibérie (Espagne) | 1re division | |
+| Lega Aurea | Italia | 1re division | |
+| Meisterliga | Teutonie (Allemagne) | 1re division | |
+
+- **Choix du club** dans n'importe quel championnat. Les objectifs de la direction s'adaptent : jouer le titre, se maintenir, ou viser la montée en deuxième division.
+- **Montées et descentes** entre l'Élite et l'Excellence à chaque intersaison (réputation ajustée, annonce dans la messagerie, objectifs de la saison suivante recalculés).
+- **Coupes nationales** : la Coupe Nationale réunit les 32 clubs français et commence en seizièmes de finale ; chaque pays étranger a sa coupe à 16 clubs (Albion Cup, Copa del Rey Ibérica, Coppa Aurea, Teutonen-Pokal), qui commence en huitièmes. Primes et recettes suivent la richesse du championnat.
+- **Base de joueurs** : plus de 2 600 joueurs au départ. Chaque club compte 26 joueurs (24 selon un modèle de postes et 2 espoirs de 17 à 20 ans), et 160 joueurs libres sont maintenus sur le marché. 37 nationalités ; chaque championnat recrute surtout dans son pays et ses filières habituelles (Albion : Britanniques et Irlandais ; Ibérica : Amérique du Sud ; Meisterliga : Autriche, Suisse, Pologne, Turquie…). Les noms sont des noms de famille courants, sans footballeurs réels.
+- **Écrans** : sélecteur de championnat sur la page Compétitions (classement, calendrier, coupe du pays, statistiques), filtre « Championnat » sur le marché des transferts, championnat du club sur la fiche joueur.
+- **Effectifs IA** : au-delà de 28 joueurs, les moins utiles sont libérés ; le marché des joueurs libres est complété ou élagué à chaque intersaison.
+- **Performances** : une semaine complète (48 matchs simulés) prend environ 70 ms. La sauvegarde est compressée (lz-string, environ 13 fois plus petite) dans un Web Worker et écrite en différé, donc l'interface ne se bloque pas. Les matchs des autres clubs ne gardent que les buts et expulsions, sans texte ni notes. Les anciennes sauvegardes (v6) sont migrées : la saison en cours continue, et les nouveaux championnats démarrent à la saison suivante.
+
 ## Fonctionnalités (MVP)
 
 | Module | Écran | Contenu |
 | --- | --- | --- |
-| Accueil & choix du club | `/`, `/nouvelle-partie` | Reprise de la sauvegarde, import JSON, 16 clubs fictifs (niveau, réputation, budget, note du onze, joueurs clés, attente de la direction) |
+| Accueil & choix du club | `/`, `/nouvelle-partie` | Reprise de la sauvegarde, import JSON, 96 clubs fictifs dans 6 championnats (niveau, réputation, budget, note du onze, joueurs clés, attente de la direction) |
 | Tableau de bord | `/jeu` | Prochain match, mini-classement, moral, trésorerie, masse salariale, alertes (blessés, fatigue, offres), messagerie, bilan de fin de saison |
 | Effectif | `/jeu/effectif` | Tableau triable/filtrable (poste, âge, note, potentiel, valeur, salaire, forme, fatigue, stats), fiche joueur : liste des transferts (seule façon de vendre : les clubs font leurs offres chaque semaine), prolongation, résiliation |
 | Tactique | `/jeu/tactique` | 5 formations (4-3-3, 4-4-2, 3-5-2, 4-2-3-1, 5-3-2), mentalité, terrain interactif, adaptation au poste, équilibre attaque/milieu/défense |
@@ -164,3 +185,12 @@ Page `/jeu/semaine` (onglet « Semaine », avec un badge des tâches restantes, 
 
 - **Continuité** : voir « Match 2D : un vrai match continu » ci-dessus.
 - **Causerie de la mi-temps** : le match s'arrête à la 45e minute. Quatre tons au choix : rester calme, encourager, coup de gueule, revenir au plan de jeu. L'effet sur la seconde période dépend du score : un coup de gueule réveille une équipe menée mais crispe une équipe qui gagne. La causerie est enregistrée comme une décision, donc rejouée à l'identique.
+
+### Sixième vague d'événements
+
+Plus de 75 nouveaux événements :
+- **Joueurs** : mariage, retour à l'école, période de jeûne, rumeur de paris, guerre des farces (3 actes), brassard contesté, cours de français, frère agent, pari du tatouage, numéro 10, match du quartier, poussée de croissance, influenceur, nuits sur la console, rituel porte-bonheur, jubilé, documentaire, rêve de Ballon d'or…
+- **Staff** : licence Pro, brassières GPS, cellule vidéo, stage en altitude, complément miracle.
+- **Club** : toiture qui fuit, tramway, sponsor fluo, tifo géant, podcast, pelouse malade, mascotte disparue.
+- **Contexte du classement** : relégation, course au titre, série d'invincibilité, série de nuls, calendrier infernal.
+- **Liés aux championnats** : course à la montée, promu qui découvre l'élite, géant étranger qui veut votre meilleur joueur (vraie offre dans Transferts), mission de recrutement à l'étranger (connaissance des meilleurs espoirs d'un championnat), tournoi international, soldes d'un relégable, diffusion à l'étranger, mal du pays d'un joueur étranger.

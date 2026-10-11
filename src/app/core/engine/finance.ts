@@ -22,7 +22,7 @@ export const gateReceipts = (c: Club, crowd: number) => Math.round(crowd * c.tic
 export const wageBill = (squad: Player[]) => squad.reduce((sum, p) => sum + p.wage, 0);
 
 /** Primes de coupe par tour atteint (index = tour joué et gagné). */
-export const CUP_PRIZES = [400_000, 800_000, 1_500_000, 4_000_000];
+export const CUP_PRIZES = [250_000, 400_000, 800_000, 1_500_000, 4_000_000];
 
 /** Prime de fin de saison selon le classement (1er = index 0). */
 export function leaguePrize(position: number, clubCount: number): number {

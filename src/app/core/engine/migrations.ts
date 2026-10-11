@@ -4,7 +4,9 @@ import { createBoard } from './board';
 import { initialManagerReputation } from './career';
 import { assignStatuses, clamp } from './player-factory';
 import { squadOf } from './world';
-import { setupStaff } from './new-game';
+import { addClub, FREE_AGENTS, setupStaff } from './new-game';
+import { WORLD_CLUBS } from '../data/leagues.data';
+import { generateFreeAgents } from './world';
 import { Rng } from './rng';
 import { idGenFor } from './world';
 
@@ -33,6 +35,10 @@ export function migrate(data: GameState & { schemaVersion?: number; boardTarget?
   if (version < 6) {
     migrateV5toV6(data);
     version = 6;
+  }
+  if (version < 7) {
+    migrateV6toV7(data);
+    version = 7;
   }
   data.schemaVersion = SCHEMA_VERSION;
   return data;
@@ -133,4 +139,24 @@ function migrateV5toV6(s: GameState): void {
     s.liveMatch.home.tactic.instructions = { ...DEFAULT_INSTRUCTIONS, ...s.liveMatch.home.tactic.instructions };
     s.liveMatch.away.tactic.instructions = { ...DEFAULT_INSTRUCTIONS, ...s.liveMatch.away.tactic.instructions };
   }
+}
+
+/**
+ * v6 → v7 : plusieurs championnats (deuxième division et ligues étrangères), coupes nationales,
+ * effectifs plus fournis. La saison en cours continue telle quelle ; les nouveaux championnats
+ * démarrent à la saison suivante.
+ */
+function migrateV6toV7(s: GameState): void {
+  for (const club of s.clubs) club.leagueId ??= 'fr1';
+  // La coupe nationale compte désormais un tour de plus (seizièmes) : les tours existants sont décalés.
+  const cupWeeks = new Set(s.weeks.filter((w) => w.competition === 'cup').map((w) => w.index));
+  for (const w of s.weeks) if (w.competition === 'cup') w.round += 1;
+  for (const f of s.fixtures) if (f.competition === 'cup' || cupWeeks.has(f.week)) f.cup ??= 'FRA';
+  for (const o of s.board.objectives) if (o.kind === 'cup') o.target += 1;
+  const ids = idGenFor(s);
+  const rng = new Rng((s.rngSeed ^ 0x7e7e7e7e) >>> 0);
+  const existing = new Set(s.clubs.map((c) => c.id));
+  for (const { seed, leagueId } of WORLD_CLUBS) if (!existing.has(seed.id)) addClub(s, seed, leagueId, rng, ids);
+  const free = s.players.filter((p) => !p.clubId).length;
+  if (free < FREE_AGENTS) s.players.push(...generateFreeAgents(rng, ids, FREE_AGENTS - free));
 }

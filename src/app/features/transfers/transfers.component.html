@@ -53,6 +53,16 @@
             </select>
           </label>
           <label class="field">
+            Championnat
+            <select class="input" [value]="leagueFilter()" (change)="leagueFilter.set($any($event.target).value)">
+              <option value="ALL">Tous</option>
+              @for (l of leagues; track l.id) {
+                <option [value]="l.id">{{ l.flag }} {{ l.name }}</option>
+              }
+              <option value="NONE">Sans club</option>
+            </select>
+          </label>
+          <label class="field">
             Ligne
             <select class="input" [value]="group()" (change)="group.set($any($event.target).value)">
               <option value="ALL">Toutes</option>

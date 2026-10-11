@@ -1,4 +1,5 @@
-import { CLUB_SEEDS, LEAGUE_NAME } from '../data/clubs.data';
+import { ClubSeed } from '../data/clubs.data';
+import { WORLD_CLUBS } from '../data/leagues.data';
 import { Club, DEFAULT_INSTRUCTIONS, GameState, SCHEMA_VERSION } from '../models';
 import { createBoard } from './board';
 import { initialManagerReputation } from './career';
@@ -8,7 +9,7 @@ import { assignStatuses, clamp } from './player-factory';
 import { Rng } from './rng';
 import { buildSeason, drawCupRound } from './schedule';
 import { marketValue, roundMoney } from './valuation';
-import { addNews, clubById, generateFreeAgents, generateSquad, IdGen, idGenFor } from './world';
+import { addNews, clubById, countries, countryClubs, generateFreeAgents, generateSquad, IdGen, idGenFor, userLeague } from './world';
 import { initialStaff, refreshStaffMarket } from './characters';
 
 export function createNewGame(managerName: string, userClubId: string, seed: number): GameState {
@@ -50,8 +51,27 @@ export function createNewGame(managerName: string, userClubId: string, seed: num
   };
   const ids = idGenFor(state);
 
-  for (const seed of CLUB_SEEDS) {
-    const squad = generateSquad(rng, ids, seed.id, seed.level);
+  for (const { seed, leagueId } of WORLD_CLUBS) addClub(state, seed, leagueId, rng, ids);
+  state.players.push(...generateFreeAgents(rng, ids, FREE_AGENTS));
+
+  const userClub = clubById(state, userClubId);
+  state.manager.reputation = initialManagerReputation(userClub.reputation);
+  state.manager.career.push({ clubId: userClubId, fromSeason: season, fromWeek: 0 });
+  setupStaff(state, rng, ids);
+
+  startSeason(state, rng, ids);
+  state.rngSeed = rng.state;
+  return state;
+}
+
+/** Nombre de joueurs libres maintenus sur le marché. */
+export const FREE_AGENTS = 160;
+
+/** Crée un club, son effectif et sa tactique. */
+export function addClub(state: GameState, seed: ClubSeed, leagueId: string, rng: Rng, ids: IdGen): Club {
+  const userClubId = state.userClubId;
+  {
+    const squad = generateSquad(rng, ids, seed.id, seed.level, leagueId);
     assignStatuses(squad);
     // Quelques joueurs formés au club (quota), de préférence parmi les plus jeunes.
     [...squad]
@@ -75,6 +95,7 @@ export function createNewGame(managerName: string, userClubId: string, seed: num
       capacity: seed.capacity,
       reputation: seed.reputation,
       level: seed.level,
+      leagueId,
       balance: Math.round(seed.balanceM * 1_000_000),
       transferBudget: Math.round(seed.transferM * 1_000_000),
       wageBudget: Math.round(wageBill(squad) * 1.15),
@@ -93,30 +114,27 @@ export function createNewGame(managerName: string, userClubId: string, seed: num
     club.tactic.formation = rng.pick(['4-3-3', '4-4-2', '4-2-3-1', '3-5-2'] as const);
     club.tactic.lineup = autoPickLineup(squad, club.tactic.formation);
     state.clubs.push(club);
+    return club;
   }
-  state.players.push(...generateFreeAgents(rng, ids, 40));
-
-  const userClub = clubById(state, userClubId);
-  state.manager.reputation = initialManagerReputation(userClub.reputation);
-  state.manager.career.push({ clubId: userClubId, fromSeason: season, fromWeek: 0 });
-  setupStaff(state, rng, ids);
-
-  startSeason(state, rng, ids);
-  state.rngSeed = rng.state;
-  return state;
 }
 
 /** Prépare le calendrier, la coupe et les objectifs d'une saison. */
 export function startSeason(s: GameState, rng: Rng, ids: IdGen): void {
-  const clubIds = s.clubs.map((c) => c.id);
-  const plan = buildSeason(s.season, clubIds, rng, () => ids('f'));
+  const leagues = new Map<string, string[]>();
+  for (const c of s.clubs) leagues.set(c.leagueId, [...(leagues.get(c.leagueId) ?? []), c.id]);
+  const plan = buildSeason(s.season, [...leagues.values()], rng, () => ids('f'));
   s.weeks = plan.weeks;
   s.fixtures = plan.fixtures;
   s.currentWeek = 0;
   s.offers = [];
   s.feeAgreements = [];
-  const firstCupWeek = s.weeks.find((w) => w.competition === 'cup');
-  if (firstCupWeek) s.fixtures.push(...drawCupRound(clubIds, firstCupWeek.index, rng, () => ids('f')));
+  // Coupes nationales : 32 clubs commencent en seizièmes, 16 clubs en huitièmes.
+  for (const country of countries()) {
+    const clubs = countryClubs(s, country).map((c) => c.id);
+    const firstRound = clubs.length > 16 ? 0 : 1;
+    const week = s.weeks.find((w) => w.competition === 'cup' && w.round === firstRound);
+    if (week) s.fixtures.push(...drawCupRound(clubs, week.index, rng, () => ids('f'), country));
+  }
 
   s.board = createBoard(s, Math.max(45, s.board.confidence));
   const user = clubById(s, s.userClubId);
@@ -124,7 +142,7 @@ export function startSeason(s: GameState, rng: Rng, ids: IdGen): void {
     s,
     'board',
     `Objectifs de la saison ${s.season}-${s.season + 1}`,
-    `La direction de ${user.name} fixe ses attentes en ${LEAGUE_NAME} et au-delà : ${s.board.objectives.map((o) => o.label.toLowerCase()).join(' ; ')}. ` +
+    `La direction de ${user.name} fixe ses attentes en ${userLeague(s).name} et au-delà : ${s.board.objectives.map((o) => o.label.toLowerCase()).join(' ; ')}. ` +
       `Budget transferts : ${(user.transferBudget / 1e6).toFixed(1).replace('.', ',')} M€.`,
     ids,
   );

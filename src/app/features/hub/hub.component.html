@@ -26,7 +26,7 @@
       <dl class="kv honours">
         <dt>Champion</dt>
         <dd class="club-cell"><app-club-crest [club]="sum.champion" [size]="20" /> {{ sum.champion.name }}</dd>
-        <dt>{{ cupName }}</dt>
+        <dt>{{ cupName() }}</dt>
         <dd>{{ sum.cupWinner?.name ?? '—' }}</dd>
       </dl>
       <button type="button" class="btn btn-primary btn-lg" (click)="game.startNextSeason()">Lancer la saison {{ state().season + 1 }}-{{ state().season + 2 }}</button>
@@ -40,7 +40,7 @@
       <div class="panel-head">
         <h2 id="next-title">Prochain match</h2>
         @if (next(); as n) {
-          <span class="tag" [class.tag-warn]="n.fixture.competition === 'cup'">{{ n.fixture.competition === 'cup' ? cupName : leagueName }}</span>
+          <span class="tag" [class.tag-warn]="n.fixture.competition === 'cup'">{{ n.fixture.competition === 'cup' ? cupName() : leagueName() }}</span>
         }
       </div>
       @if (next(); as n) {
@@ -112,7 +112,7 @@
     <!-- Classement -->
     <section class="panel" aria-labelledby="table-title">
       <div class="panel-head">
-        <h2 id="table-title">{{ leagueName }}</h2>
+        <h2 id="table-title">{{ leagueName() }}</h2>
         <a routerLink="/jeu/competitions">Classement complet</a>
       </div>
       <table class="data">

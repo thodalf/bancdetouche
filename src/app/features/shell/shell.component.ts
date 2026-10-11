@@ -67,7 +67,11 @@ export class ShellComponent {
     const w = this.store.currentWeek();
     if (!s) return '';
     if (!w) return `Intersaison ${s.season + 1}`;
-    return `${w.label} — semaine ${s.currentWeek + 1}/${s.weeks.length}`;
+    // Semaine de coupe sans match pour ce pays (ex. seizièmes réservés à la coupe de France).
+    const country = this.store.userLeague().country;
+    const cupHere = w.competition !== 'cup' || s.fixtures.some((f) => f.week === w.index && (f.cup ?? 'FRA') === country);
+    const label = cupHere ? w.label : 'Trêve (coupes étrangères)';
+    return `${label} — semaine ${s.currentWeek + 1}/${s.weeks.length}`;
   });
 
   /** Espace = « suivant » (l'écran affiché peut proposer sa propre action). */

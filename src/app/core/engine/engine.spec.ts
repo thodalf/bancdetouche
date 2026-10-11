@@ -1,7 +1,8 @@
 import { CLUB_SEEDS } from '../data/clubs.data';
 import { Rng } from './rng';
 import { roundRobin } from './schedule';
-import { completeWeek, isSeasonOver, startNextSeason } from './season';
+import { completeWeek, isSeasonOver, leagueTable, startNextSeason } from './season';
+import { LEAGUES } from '../data/leagues.data';
 import { computeStandings } from './standings';
 import { idGenFor, squadOf } from './world';
 import { createNewGame } from './new-game';
@@ -15,7 +16,7 @@ import { startingStamina } from './match-engine';
 import { addXp, claimCard, discardPack, openBooster, startMission, weeklyMissions, xpToNext } from './boosters';
 import { renameClub } from './career';
 import { tacticalMods } from './game-plans';
-import { DEFAULT_INSTRUCTIONS } from '../models';
+import { DEFAULT_INSTRUCTIONS, SCHEMA_VERSION } from '../models';
 import { fireStaff, hireStaff, selectLifestyle, totalEffects, unlockPerk, LIFESTYLES } from './characters';
 import { EVENTS, maybeTriggerEvent, recentResults, resolveEvent } from './events';
 import { potentialEstimate } from './scouting';
@@ -66,7 +67,7 @@ describe('saison complète', () => {
     const homeWins = league.filter((f) => f.homeGoals > f.awayGoals).length / league.length;
     const draws = league.filter((f) => f.homeGoals === f.awayGoals).length / league.length;
     const shots = league.reduce((s, f) => s + (f.stats?.shotsHome ?? 0) + (f.stats?.shotsAway ?? 0), 0) / league.length / 2;
-    const table = computeStandings(state.clubs.map((c) => c.id), state.fixtures);
+    const table = leagueTable(state, 'fr1');
     const report = {
       goals: goals.toFixed(2),
       homeWins: homeWins.toFixed(2),
@@ -79,14 +80,25 @@ describe('saison complète', () => {
     console.log(JSON.stringify(report, null, 2));
     expect(goals).toBeGreaterThan(2);
     expect(goals).toBeLessThan(3.6);
-    expect(state.fixtures.filter((f) => f.competition === 'cup').length).toBe(15);
+    // Coupe de France à 32 clubs (31 matchs), coupes étrangères à 16 clubs (15 matchs).
+    const cups = state.fixtures.filter((f) => f.competition === 'cup');
+    expect(cups.filter((f) => f.cup === 'FRA').length).toBe(31);
+    for (const c of ['ENG', 'ESP', 'ITA', 'GER']) expect(cups.filter((f) => f.cup === c).length).toBe(15);
     expect(state.history.length).toBe(1);
+    expect(Object.keys(state.history[0].champions ?? {}).length).toBe(6);
 
+    const relegated = leagueTable(state, 'fr1').slice(-3).map((r) => r.clubId);
+    const promoted = leagueTable(state, 'fr2').slice(0, 3).map((r) => r.clubId);
     startNextSeason(state, rng, ids);
     expect(state.season).toBe(2027);
     expect(state.currentWeek).toBe(0);
     state.clubs.forEach((c) => expect(squadOf(state, c.id).length).toBeGreaterThanOrEqual(18));
-  });
+    // Montées et descentes entre l'Élite et l'Excellence.
+    relegated.forEach((id) => expect(state.clubs.find((c) => c.id === id)!.leagueId).toBe('fr2'));
+    promoted.forEach((id) => expect(state.clubs.find((c) => c.id === id)!.leagueId).toBe('fr1'));
+    expect(state.clubs.filter((c) => c.leagueId === 'fr1').length).toBe(16);
+    expect(state.fixtures.filter((f) => f.competition === 'league' && promoted.includes(f.homeId)).length).toBe(3 * 15);
+  }, 60_000);
 });
 
 describe('transferts et contrats', () => {
@@ -138,7 +150,7 @@ describe('règles et sauvegardes', () => {
     delete state.liveMatch;
     state.players.forEach((p: any) => delete p.morale);
     const migrated = migrate(state);
-    expect(migrated.schemaVersion).toBe(6);
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
     expect(migrated.clubs[0].tactic.instructions.tempo).toBe('normal');
     expect(migrated.manager.level).toBe(1);
     expect(migrated.boosters.items.length).toBe(1);
@@ -171,7 +183,7 @@ describe('carrière sur plusieurs saisons', () => {
     expect(state.players.some((p) => p.homegrownClubId === state.userClubId)).toBe(true);
     expect(state.news.some((n) => n.kind === 'youth')).toBe(true);
     console.log(JSON.stringify({ clubChanges, rep: state.manager.reputation, confidence: state.board.confidence, club: state.userClubId }));
-  });
+  }, 120_000);
 });
 
 describe('match en direct', () => {
@@ -391,7 +403,7 @@ describe('round 6', () => {
     for (let i = 0; i < 30 && !state.events.length; i++) maybeTriggerEvent(state, rng, ids);
     expect(state.events[0]?.defId).toBe('losing-streak');
     expect(resolveEvent(state, state.events[0].id, 0, rng, ids)).not.toBe('');
-  });
+  }, 60_000);
 });
 
 describe('événements (catalogue complet)', () => {
@@ -427,7 +439,7 @@ describe('événements (catalogue complet)', () => {
         expect(def.text({ staff, player, player2, club }, s).length).toBeGreaterThan(10);
       });
     }
-  });
+  }, 120_000);
 
   it('programme et déclenche la suite d’une chaîne d’événements', () => {
     const s = createNewGame('Test', 'olv', 71);
@@ -627,4 +639,55 @@ describe('semaine de travail', () => {
     expect(sim.onField(side).find((x) => x.player.id === sub.id)!.stamina).toBe(subStart);
     expect(subStart).toBeGreaterThan(out.stamina);
   });
+});
+
+describe('monde', () => {
+  it('six championnats, des effectifs locaux et un marché fourni', () => {
+    const s = createNewGame('Test', 'srb', 9);
+    expect(s.clubs.length).toBe(96);
+    for (const l of LEAGUES) expect(s.clubs.filter((c) => c.leagueId === l.id).length).toBe(16);
+    expect(s.players.filter((p) => !p.clubId).length).toBe(160);
+    s.clubs.forEach((c) => expect(squadOf(s, c.id).length).toBe(26));
+    // Un club anglais aligne surtout des joueurs britanniques, un club français surtout des Français.
+    const share = (clubId: string, nats: string[]) => {
+      const squad = squadOf(s, clubId);
+      return squad.filter((p) => nats.includes(p.nationality)).length / squad.length;
+    };
+    const en = s.clubs.filter((c) => c.leagueId === 'en1').map((c) => share(c.id, ['ENG', 'SCO', 'WAL', 'IRL']));
+    expect(en.reduce((a, b) => a + b, 0) / en.length).toBeGreaterThan(0.45);
+    // La deuxième division est plus faible que l'élite.
+    const avg = (leagueId: string) => {
+      const ps = s.players.filter((p) => p.clubId && s.clubs.find((c) => c.id === p.clubId)!.leagueId === leagueId);
+      return ps.reduce((a, p) => a + p.rating, 0) / ps.length;
+    };
+    expect(avg('fr2')).toBeLessThan(avg('fr1') - 4);
+    // Le club de l'entraîneur respecte les règles de composition dès le départ, et la direction vise la montée.
+    const club = s.clubs.find((c) => c.id === 'srb')!;
+    expect(checkSquadRules(club, squadOf(s, 'srb')).every((r) => r.ok)).toBe(true);
+    expect(s.board.objectives.find((o) => o.kind === 'league')!.label).toContain('Monter');
+    // Noms variés : peu de doublons parmi plus de 2 500 joueurs.
+    const names = new Set(s.players.map((p) => `${p.firstName} ${p.lastName}`));
+    expect(names.size / s.players.length).toBeGreaterThan(0.9);
+  });
+
+  it('migre une sauvegarde à un seul championnat (v6)', () => {
+    const s = createNewGame('Test', 'olv', 13) as any;
+    // Sauvegarde v6 simulée : seulement l'élite, coupe à 4 tours.
+    const fr1 = new Set(s.clubs.filter((c: any) => c.leagueId === 'fr1').map((c: any) => c.id));
+    s.clubs = s.clubs.filter((c: any) => fr1.has(c.id));
+    s.clubs.forEach((c: any) => delete c.leagueId);
+    s.players = s.players.filter((p: any) => !p.clubId || fr1.has(p.clubId));
+    s.fixtures = s.fixtures.filter((f: any) => fr1.has(f.homeId) && f.competition === 'league');
+    s.weeks.filter((w: any) => w.competition === 'cup').forEach((w: any) => (w.round = Math.max(0, w.round - 1)));
+    s.schemaVersion = 6;
+    const m = migrate(s);
+    expect(m.clubs.length).toBe(96);
+    expect(m.clubs.filter((c) => c.leagueId === 'fr1').length).toBe(16);
+    const rng = new Rng(m.rngSeed);
+    const ids = idGenFor(m);
+    while (!isSeasonOver(m)) completeWeek(m, rng, ids);
+    startNextSeason(m, rng, ids);
+    // Les nouveaux championnats démarrent à la saison suivante.
+    expect(m.fixtures.filter((f) => f.competition === 'league').length).toBe(6 * 8 * 30);
+  }, 60_000);
 });

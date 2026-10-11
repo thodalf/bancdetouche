@@ -1,3 +1,4 @@
+import { LEAGUES } from '../../core/data/leagues.data';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { PlayerCardService } from '../../core/services/player-card.service';
 import { PlayerLinkComponent } from '../../shared/components/player-link.component';
@@ -36,6 +37,9 @@ export class TransfersComponent {
   // ---- filtres du marché
   protected readonly search = signal('');
   protected readonly group = signal<PositionGroup | 'ALL'>('ALL');
+  protected readonly leagues = LEAGUES;
+  /** Filtre par championnat (ALL = tous, NONE = joueurs libres). */
+  protected readonly leagueFilter = signal<string>('ALL');
   protected readonly source = signal<Source>('listed');
   protected readonly maxPriceM = signal<number | null>(null);
   protected readonly minRating = signal(0);
@@ -53,6 +57,8 @@ export class TransfersComponent {
     const minRating = this.minRating();
     const budget = this.club().transferBudget;
     const key = this.sortKey();
+    const lf = this.leagueFilter();
+    const clubs = this.store.clubsById();
     return this.transfers
       .market()
       .filter((e) => {
@@ -61,6 +67,8 @@ export class TransfersComponent {
         if (src === 'free' && p.clubId) return false;
         if (src === 'booster' && !p.scoutedBy) return false;
         if (g !== 'ALL' && POSITION_GROUP[p.position] !== g) return false;
+        if (lf === 'NONE' && p.clubId) return false;
+        if (lf !== 'ALL' && lf !== 'NONE' && (!p.clubId || clubs.get(p.clubId)?.leagueId !== lf)) return false;
         // Les filtres et tris utilisent l'estimation, jamais la note cachée.
         if (e.view.estimate < minRating || e.price > maxPrice) return false;
         if (this.affordableOnly() && e.price > budget) return false;

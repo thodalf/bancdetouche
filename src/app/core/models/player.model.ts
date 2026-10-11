@@ -159,5 +159,6 @@ export const hasTrait = (p: Pick<Player, 'id' | 'traits'> | undefined, t: Player
 export const emptyStats = (): PlayerSeasonStats => ({ appearances: 0, goals: 0, assists: 0, ratingSum: 0 });
 
 /** Nationalités membres de l'Union européenne parmi celles générées. */
-export const EU_NATIONALITIES = new Set(['FRA', 'ESP', 'POR', 'BEL', 'ITA']);
+/** Nations européennes « communautaires » (simplification : on y compte aussi les Britanniques). */
+export const EU_NATIONALITIES = new Set(['FRA', 'ESP', 'POR', 'BEL', 'ITA', 'GER', 'AUT', 'NED', 'DEN', 'SWE', 'POL', 'CRO', 'IRL', 'ENG', 'SCO', 'WAL']);
 export const isNonEu = (p: Pick<Player, 'nationality'>) => !EU_NATIONALITIES.has(p.nationality);

@@ -17,6 +17,7 @@
         @if (v.club) {
           <app-club-crest [club]="v.club" [size]="26" />
           <span><strong>{{ v.club.name }}</strong>
+            <small class="muted"> · {{ leagueOf(v.club.leagueId).flag }} {{ leagueOf(v.club.leagueId).short }}</small>
             @if (v.own) { <small class="muted"> · {{ statusLabels[v.p.squadStatus] }}</small> }
           </span>
         } @else if (v.inWorld) {

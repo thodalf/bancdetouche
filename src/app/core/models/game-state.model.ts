@@ -78,6 +78,12 @@ export interface SeasonRecord {
   cupWinnerId: string | null;
   userPosition: number;
   userClubId: string;
+  /** Championnat de l'entraîneur cette saison. */
+  userLeagueId?: string;
+  /** Champion de chaque championnat. */
+  champions?: Record<string, string>;
+  /** Vainqueur de chaque coupe nationale. */
+  cupWinners?: Record<string, string>;
 }
 
 // ------------------------------------------------------------------ direction
@@ -198,4 +204,4 @@ export interface GameState {
   nextId: number;
 }
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;

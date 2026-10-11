@@ -3,9 +3,28 @@
     <div>
       <a routerLink="/" class="back">‹ Accueil</a>
       <h1>Choisissez votre club</h1>
-      <p>16 clubs de la {{ leagueName }}. Plus la réputation est haute, plus les moyens… et les attentes sont élevés.</p>
+      <p>{{ preview().clubs.length }} clubs dans {{ leagues.length }} championnats. Plus la réputation est haute, plus les moyens… et les attentes sont élevés.</p>
     </div>
   </header>
+
+  <div class="league-picker" role="tablist" aria-label="Championnat">
+    @for (l of leagues; track l.id) {
+      <button type="button" role="tab" class="league-chip" [attr.aria-selected]="leagueId() === l.id" (click)="pickLeague(l.id)">
+        <span>{{ l.flag }}</span>
+        <span>{{ l.name }}</span>
+        <small>{{ l.tier > 1 ? 'D' + l.tier : l.countryName }}</small>
+      </button>
+    }
+  </div>
+  <p class="muted league-note">
+    @if (league().up) {
+      Deuxième division : les 3 premiers montent en Division Élite. Moins de moyens, mais l'occasion de bâtir un projet.
+    } @else if (league().down) {
+      Les 3 derniers descendent en Division Excellence.
+    } @else {
+      Championnat étranger ({{ league().countryName }}) : effectifs locaux, coupe nationale propre, pas de relégation.
+    }
+  </p>
 
   <div class="layout">
     <section class="panel list" aria-label="Clubs disponibles">
