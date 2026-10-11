@@ -1,0 +1,438 @@
+<div class="page">
+  @if (info(); as m) {
+    <!-- Tableau d'affichage -->
+    <section class="scoreboard" [style.--home]="m.home.colors.primary" [style.--away]="m.away.colors.primary" aria-live="polite">
+      <p class="competition">{{ m.competition }}</p>
+      <div class="board">
+        <div class="team">
+          <app-club-crest [club]="m.home" [size]="52" />
+          <span class="team-name">{{ m.home.name }}</span>
+          <ul class="scorers">
+            @for (g of scorersFor('home'); track $index) {
+              <li [class.red]="g.red">{{ g.name }} {{ g.minute }}'</li>
+            }
+          </ul>
+        </div>
+        <div class="score-box">
+          @if (snapshot(); as s) {
+            @let sc = shownScore()!;
+            <span class="score">{{ sc.home }}<span class="dash">–</span>{{ sc.away }}</span>
+            <span class="clock">
+              @if (phase() === 'live') {
+                {{ s.minute }}'
+              } @else {
+                Terminé
+              }
+            </span>
+          } @else {
+            <span class="score idle">–</span>
+            <span class="clock">{{ m.week.label }}</span>
+          }
+        </div>
+        <div class="team">
+          <app-club-crest [club]="m.away" [size]="52" />
+          <span class="team-name">{{ m.away.name }}</span>
+          <ul class="scorers">
+            @for (g of scorersFor('away'); track $index) {
+              <li [class.red]="g.red">{{ g.name }} {{ g.minute }}'</li>
+            }
+          </ul>
+        </div>
+      </div>
+      @if (snapshot(); as s) {
+        <div class="progress" aria-hidden="true"><span [style.width.%]="(s.minute / 90) * 100"></span></div>
+      }
+    </section>
+
+    @switch (phase()) {
+      @case ('pre') {
+        @if (preview(); as pv) {
+          <div class="grid grid-2">
+            @for (side of [{ club: m.home, data: pv.home, isUser: m.userSide === 'home' }, { club: m.away, data: pv.away, isUser: m.userSide === 'away' }]; track side.club.id) {
+              <section class="panel lineup">
+                <div class="panel-head">
+                  <h2>{{ side.club.shortName }} — {{ side.data.formation }}</h2>
+                  <span class="tag">{{ side.data.style }}</span>
+                </div>
+                <dl class="kv strength">
+                  <dt>Force globale</dt>
+                  <dd><strong>{{ side.data.overall }}</strong></dd>
+                  <dt>Attaque / Défense</dt>
+                  <dd>{{ side.data.attack }} / {{ side.data.defense }}</dd>
+                </dl>
+                <ul class="xi">
+                  @for (s of side.data.players; track $index) {
+                    <li>
+                      <span class="pos-tag" [attr.data-group]="groupOf[s.role]">{{ s.role | pos }}</span>
+                      <span><app-player-link [player]="s.player" /></span>
+                      @if (s.player) {
+                        @let c = condition(s.player);
+                        <span class="stamina" [attr.data-level]="staminaLevel(c)" [title]="'Condition physique : ' + c + ' %'">
+                          <span class="stamina-bar"><span [style.width.%]="c"></span></span>
+                          <span class="num">{{ c }}</span>
+                        </span>
+                        @if (side.isUser) {
+                          <app-rating [value]="s.player.rating" />
+                        } @else {
+                          <app-scouted-rating [player]="s.player" />
+                        }
+                      }
+                    </li>
+                  }
+                </ul>
+                @if (side.isUser && side.data.bench.length) {
+                  <h3 class="bench-title">Remplaçants</h3>
+                  <ul class="xi">
+                    @for (p of side.data.bench; track p.id) {
+                      @let c = condition(p);
+                      <li>
+                        <span class="pos-tag" [attr.data-group]="groupOf[p.position]">{{ p.position | pos }}</span>
+                        <span><app-player-link [player]="p" /></span>
+                        <span class="stamina" [attr.data-level]="staminaLevel(c)" [title]="'Condition physique : ' + c + ' %'">
+                          <span class="stamina-bar"><span [style.width.%]="c"></span></span>
+                          <span class="num">{{ c }}</span>
+                        </span>
+                        <app-rating [value]="p.rating" />
+                      </li>
+                    }
+                  </ul>
+                  <p class="muted small">Condition physique au coup d'envoi : 100 = frais. Elle baisse pendant le match (plus vite avec le pressing, l'intensité et l'âge) ; un joueur à bout de souffle pèse moins.</p>
+                }
+                @if (side.isUser) {
+                  <a class="btn btn-sm" routerLink="/jeu/tactique">Modifier la composition</a>
+                }
+              </section>
+            }
+          </div>
+          @if (store.ruleViolations().length) {
+            <section class="panel violations" role="alert">
+              <h2>Feuille de match non conforme</h2>
+              <ul>
+                @for (r of store.ruleViolations(); track r.id) {
+                  <li><strong>{{ r.label }} : {{ r.value }}/{{ r.limit }}.</strong> {{ r.fix }}</li>
+                }
+              </ul>
+              <div class="start-actions">
+                <button type="button" class="btn" (click)="tactics.autoPick()">Recomposer le onze automatiquement</button>
+                <a class="btn btn-ghost" routerLink="/jeu/effectif">Gérer l'effectif</a>
+                <a class="btn btn-ghost" routerLink="/jeu/club" [queryParams]="{ onglet: 'formation' }">Centre de formation</a>
+              </div>
+            </section>
+          }
+          <div class="start-actions">
+            <button type="button" class="btn btn-primary btn-lg" [disabled]="store.ruleViolations().length > 0" (click)="start(false)">Vivre le match en direct <kbd>Espace</kbd></button>
+            <button type="button" class="btn btn-lg" [disabled]="store.ruleViolations().length > 0" (click)="start(true)">Résultat immédiat</button>
+          </div>
+        }
+      }
+
+      @case ('summary') {
+        @if (summary(); as sum) {
+          <div class="grid grid-2">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>{{ sum.verdict }}</h2>
+                @if (sum.motm?.player; as motm) {
+                  <span class="tag tag-warn">Homme du match : <app-player-link [player]="motm" [short]="true" /> ({{ sum.motm!.rating }})</span>
+                }
+              </div>
+              <table class="data">
+                <thead>
+                  <tr><th>Joueur</th><th class="num">Note</th></tr>
+                </thead>
+                <tbody>
+                  @for (r of sum.ratings; track r.player.id) {
+                    <tr>
+                      <td>
+                        <span class="pos-tag" [attr.data-group]="groupOf[r.player.position]">{{ r.player.position | pos }}</span>
+                        <app-player-link [player]="r.player" />
+                      </td>
+                      <td class="num" [class.pos-win]="r.rating >= 7.5" [class.pos-loss]="r.rating < 6">{{ r.rating.toFixed(1) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </section>
+            <section class="panel">
+              <div class="panel-head"><h2>Autres résultats</h2></div>
+              @for (o of sum.others; track o.f.id) {
+                <div class="other">
+                  <span class="club-cell right"><span>{{ o.home.name }}</span><app-club-crest [club]="o.home" [size]="18" /></span>
+                  <strong class="num">{{ o.f.homeGoals }} – {{ o.f.awayGoals }}</strong>
+                  <span class="club-cell"><app-club-crest [club]="o.away" [size]="18" /><span>{{ o.away.name }}</span></span>
+                </div>
+              }
+            </section>
+          </div>
+          <div class="start-actions">
+            <a class="btn btn-primary btn-lg" routerLink="/jeu">Retour au tableau de bord</a>
+            <span class="muted hint">Espace : semaine suivante</span>
+            <a class="btn btn-lg" routerLink="/jeu/competitions">Voir le classement</a>
+          </div>
+        }
+      }
+
+      @default {
+        <!-- Direct ou match terminé -->
+        <div class="live-controls panel">
+          @if (phase() === 'live') {
+            <div class="segmented" role="group" aria-label="Vitesse">
+              <button type="button" [attr.aria-pressed]="live.paused()" (click)="live.togglePause()">{{ live.paused() ? 'Reprendre' : 'Pause' }}</button>
+              @for (sp of speeds; track sp.label; let i = $index) {
+                <button type="button" [attr.aria-pressed]="!live.paused() && live.speed() === i" (click)="live.setSpeed(i)">{{ sp.label }}</button>
+              }
+            </div>
+            <button type="button" class="btn" (click)="openSubs()" [disabled]="!snapshot()">Changements <span class="muted">(pause)</span></button>
+            <button type="button" class="btn btn-ghost" (click)="live.skipToEnd()">Aller au coup de sifflet final <kbd>Espace</kbd></button>
+            @if (live.paused()) {
+              <span class="muted hint">Match en pause : vous pouvez changer de page, il reprendra ici.</span>
+            }
+          } @else {
+            <p>Le match est terminé. Validez le résultat pour simuler les autres matchs de la semaine.</p>
+            <button type="button" class="btn btn-primary btn-lg" (click)="live.finish()">Valider et continuer <kbd>Espace</kbd></button>
+          }
+        </div>
+
+        @if (snapshot(); as s) {
+          <div class="live-layout">
+            <div class="live-main">
+              @if (pitch(); as pt) {
+                <section class="panel pitch-panel" aria-label="Visualisation 2D">
+                  <app-match-pitch [home]="pt.home" [away]="pt.away" [actions]="s.actions" [minuteMs]="minuteMs()" [running]="running()" />
+                </section>
+              }
+              <section class="panel feed-panel">
+                <div class="panel-head"><h2>Faits de jeu</h2></div>
+                <ol class="feed">
+                  @for (e of feed(); track $index) {
+                    <li [attr.data-type]="e.type" [attr.data-side]="e.side">
+                      <span class="min">{{ e.minute }}'</span>
+                      <span>{{ e.text }}</span>
+                    </li>
+                  }
+                </ol>
+              </section>
+            </div>
+
+            <div class="live-side">
+              @if (phase() === 'live') {
+                <section class="panel changes" aria-label="Changements tactiques">
+                  <div class="panel-head"><h2>Banc de touche</h2></div>
+
+                  <div class="scenario">
+                    <p>{{ s.scenarioText }}</p>
+                    <span class="muted small">En face : {{ styleLabels[s.opponentStyle].toLowerCase() }}</span>
+                  </div>
+
+                  <div class="energy">
+                    <span class="label">Endurance</span>
+                    @for (side of sidesOrder; track side) {
+                      <div class="energy-row">
+                        <span>{{ side === live.userSide() ? 'Vous' : 'Adversaire' }}</span>
+                        <span class="energy-bar" [attr.data-low]="s.energy[side] < 55"><span [style.width.%]="s.energy[side]"></span></span>
+                        <span class="num">{{ s.energy[side] }}</span>
+                      </div>
+                    }
+                  </div>
+
+                  <span class="label">Plans conseillés</span>
+                  <div class="plans">
+                    @for (id of s.recommended; track id) {
+                      <button type="button" class="plan recommended" (click)="live.applyPlan(id)" [title]="plans[id].description">
+                        <strong>{{ plans[id].label }}</strong>
+                        <small>{{ plans[id].description }}</small>
+                      </button>
+                    }
+                  </div>
+                  <details class="all-plans">
+                    <summary>Tous les plans de jeu</summary>
+                    <div class="plans">
+                      @for (p of allPlans; track p.id) {
+                        <button type="button" class="plan" (click)="live.applyPlan(p.id)">
+                          <strong>{{ p.label }}</strong>
+                          <small>{{ p.description }}</small>
+                        </button>
+                      }
+                    </div>
+                  </details>
+
+                  <span class="label">Mentalité</span>
+                  <div class="segmented" role="group" aria-label="Mentalité">
+                    @for (st of styles; track st[0]) {
+                      <button type="button" [attr.aria-pressed]="s.style === st[0]" (click)="setStyle(st[0])">{{ st[1] }}</button>
+                    }
+                  </div>
+                  <span class="label">Système</span>
+                  <div class="segmented" role="group" aria-label="Système de jeu">
+                    @for (f of formations; track f) {
+                      <button type="button" [attr.aria-pressed]="s.formations[live.userSide()] === f" (click)="setFormation(f)">{{ f }}</button>
+                    }
+                  </div>
+
+                  <details class="detailed" open>
+                    <summary>Consignes détaillées</summary>
+                    @for (row of instructionRows; track row.key) {
+                      <div class="instr">
+                        <span class="label">{{ row.label }}</span>
+                        <div class="segmented" role="group" [attr.aria-label]="row.label">
+                          @for (o of row.options; track o[0]) {
+                            <button type="button" [attr.aria-pressed]="s.instructions[row.key] === o[0]" (click)="live.setInstruction(row.key, $any(o[0]))">{{ o[1] }}</button>
+                          }
+                        </div>
+                      </div>
+                    }
+                    <label class="toggle">
+                      <input type="checkbox" [checked]="s.instructions.counter" (change)="live.setInstruction('counter', $any($event.target).checked)" />
+                      Jeu de contre
+                    </label>
+                    <label class="toggle">
+                      <input type="checkbox" [checked]="s.instructions.timeWasting" (change)="live.setInstruction('timeWasting', $any($event.target).checked)" />
+                      Gagner du temps (quand vous menez)
+                    </label>
+                    <label class="toggle">
+                      <input type="checkbox" [checked]="s.instructions.offsideTrap" (change)="live.setInstruction('offsideTrap', $any($event.target).checked)" />
+                      Piège du hors-jeu
+                    </label>
+                  </details>
+
+                  <div class="panel-head subs-head">
+                    <h3>Remplacements</h3>
+                    <span class="muted">{{ s.subsLeft }} restant(s)</span>
+                  </div>
+                  <span class="label">Les plus fatigués</span>
+                  <ul class="tired-list">
+                    @for (x of tiredest(); track x.player.id) {
+                      <li>
+                        <span class="pos-tag" [attr.data-group]="groupOf[x.role]">{{ x.role | pos }}</span>
+                        <app-player-link [player]="x.player" [short]="true" />
+                        <span class="stamina" [attr.data-level]="staminaLevel(x.stamina)">
+                          <span class="stamina-bar"><span [style.width.%]="x.stamina"></span></span>
+                          <span class="num">{{ x.stamina }}</span>
+                        </span>
+                      </li>
+                    }
+                  </ul>
+                  <button type="button" class="btn btn-primary" (click)="openSubs()" [disabled]="s.subsLeft === 0">Faire un changement (pause)</button>
+                </section>
+              }
+
+              <section class="panel">
+                <div class="panel-head"><h2>Statistiques</h2></div>
+                <div class="stat-row">
+                  <span class="num">{{ s.stats.possessionHome }} %</span>
+                  <span class="label">Possession</span>
+                  <span class="num">{{ 100 - s.stats.possessionHome }} %</span>
+                </div>
+                <div class="split"><span [style.width.%]="s.stats.possessionHome"></span></div>
+                <div class="stat-row">
+                  <span class="num">{{ s.stats.shotsHome }}</span>
+                  <span class="label">Tirs</span>
+                  <span class="num">{{ s.stats.shotsAway }}</span>
+                </div>
+                <div class="split"><span [style.width.%]="(s.stats.shotsHome / (s.stats.shotsHome + s.stats.shotsAway || 1)) * 100"></span></div>
+                <div class="stat-row">
+                  <span class="num">{{ s.stats.onTargetHome }}</span>
+                  <span class="label">Tirs cadrés</span>
+                  <span class="num">{{ s.stats.onTargetAway }}</span>
+                </div>
+                <div class="split"><span [style.width.%]="(s.stats.onTargetHome / (s.stats.onTargetHome + s.stats.onTargetAway || 1)) * 100"></span></div>
+              </section>
+            </div>
+          </div>
+        }
+      }
+    }
+  } @else {
+    <section class="panel empty-state">
+      <h1>Pas de match à jouer</h1>
+      <p class="muted">Votre club ne joue pas cette semaine, ou le match a déjà été joué.</p>
+      <a class="btn btn-primary" routerLink="/jeu">Retour au tableau de bord</a>
+    </section>
+  }
+</div>
+
+@if (live.halfTimeTalk() && snapshot(); as s) {
+  <div class="backdrop" role="dialog" aria-modal="true" aria-labelledby="talk-title">
+    <div class="dialog talk-dialog">
+      <span class="talk-kicker">Mi-temps · {{ shownScore()!.home }} – {{ shownScore()!.away }}</span>
+      <h2 id="talk-title">La causerie</h2>
+      <p class="muted">{{ s.scenarioText }} Vos mots pèseront sur la seconde période : ce qui réveille une équipe menée peut crisper une équipe qui gagne.</p>
+      <div class="talk-options">
+        @for (t of talkTones; track t.id) {
+          <button type="button" class="btn talk-option" (click)="live.teamTalk(t.id)">
+            <strong>{{ t.label }}</strong>
+            <small>{{ t.hint }}</small>
+          </button>
+        }
+      </div>
+    </div>
+  </div>
+}
+
+@if (subsOpen() && snapshot(); as s) {
+  <div class="backdrop" role="dialog" aria-modal="true" aria-labelledby="subs-title" (keydown.escape)="closeSubs()">
+    <div class="dialog subs-dialog">
+      <div class="subs-top">
+        <div>
+          <span class="talk-kicker">Match en pause · {{ s.minute }}' · {{ shownScore()!.home }} – {{ shownScore()!.away }}</span>
+          <h2 id="subs-title">Changements</h2>
+        </div>
+        <span class="tag">{{ s.subsLeft }} remplacement(s) restant(s)</span>
+      </div>
+      <p class="muted small">
+        @if (subOut()) {
+          Choisissez maintenant le remplaçant qui entre.
+        } @else {
+          Choisissez le joueur qui sort, puis celui qui entre. Vous pouvez enchaîner plusieurs changements avant de reprendre.
+        }
+      </p>
+      <div class="subs-cols">
+        <div>
+          <h3>Sur le terrain</h3>
+          <ul class="pick-list">
+            @for (x of s.field; track x.player.id) {
+              <li>
+                <button type="button" class="pick" [class.selected]="subOut() === x.player.id" [disabled]="s.subsLeft === 0" (click)="subOut.set(subOut() === x.player.id ? null : x.player.id)">
+                  <span class="pos-tag" [attr.data-group]="groupOf[x.role]">{{ x.role | pos }}</span>
+                  <span class="pname">{{ x.player | playerName: true }}</span>
+                  @if (x.yellow) {
+                    <span class="card" title="Averti"></span>
+                  }
+                  <span class="stamina" [attr.data-level]="staminaLevel(x.stamina)" [title]="'Condition : ' + x.stamina + ' %'">
+                    <span class="stamina-bar"><span [style.width.%]="x.stamina"></span></span>
+                    <span class="num">{{ x.stamina }}</span>
+                  </span>
+                  <app-rating [value]="x.player.rating" />
+                </button>
+              </li>
+            }
+          </ul>
+        </div>
+        <div>
+          <h3>Banc</h3>
+          <ul class="pick-list">
+            @for (p of s.bench; track p.id) {
+              @let c = s.benchStamina[p.id] ?? 100;
+              <li>
+                <button type="button" class="pick" [disabled]="!subOut()" (click)="bringOn(p.id)">
+                  <span class="pos-tag" [attr.data-group]="groupOf[p.position]">{{ p.position | pos }}</span>
+                  <span class="pname">{{ p | playerName: true }}</span>
+                  <span class="stamina" [attr.data-level]="staminaLevel(c)" [title]="'Condition : ' + c + ' %'">
+                    <span class="stamina-bar"><span [style.width.%]="c"></span></span>
+                    <span class="num">{{ c }}</span>
+                  </span>
+                  <app-rating [value]="p.rating" />
+                </button>
+              </li>
+            } @empty {
+              <li class="muted small">Plus aucun remplaçant disponible.</li>
+            }
+          </ul>
+        </div>
+      </div>
+      <div class="subs-actions">
+        <button type="button" class="btn btn-primary" (click)="closeSubs()">Reprendre le match</button>
+      </div>
+    </div>
+  </div>
+}

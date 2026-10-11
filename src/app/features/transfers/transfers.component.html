@@ -1,0 +1,293 @@
+<div class="page">
+  <header class="page-head">
+    <div>
+      <h1>Marché des transferts</h1>
+      <p>Recrutez des joueurs libres ou sous contrat, et gérez les offres reçues pour vos joueurs.</p>
+    </div>
+  </header>
+
+  <section class="budget-strip panel" aria-label="Moyens disponibles">
+    <div><small class="muted">Budget transferts</small><span class="stat-big">{{ club().transferBudget | money }}</span></div>
+    <div><small class="muted">Marge salariale</small><span class="stat-big" [class.pos-loss]="wageRoom() < 0">{{ wageRoom() | money }}<small>/sem.</small></span></div>
+    <div><small class="muted">Effectif</small><span class="stat-big">{{ store.userSquad().length }}<small>/{{ maxSquad }}</small></span></div>
+    <div><small class="muted">Réputation du club</small><span class="stat-big">{{ club().reputation }}</span></div>
+  </section>
+
+  <div class="segmented tabs" role="tablist">
+    <button type="button" role="tab" [attr.aria-selected]="tab() === 'market'" (click)="tab.set('market')">Recruter</button>
+    <button type="button" role="tab" [attr.aria-selected]="tab() === 'scouting'" (click)="tab.set('scouting')">Scouting ({{ transfers.scoutSlots().used }}/{{ transfers.scoutSlots().max }})</button>
+    <button type="button" role="tab" [attr.aria-selected]="tab() === 'offers'" (click)="tab.set('offers')">Offres reçues ({{ offers().length }})</button>
+    <button type="button" role="tab" [attr.aria-selected]="tab() === 'selling'" (click)="tab.set('selling')">Mes joueurs à vendre ({{ listed().length }})</button>
+  </div>
+
+  @switch (tab()) {
+    @case ('market') {
+      @if (transfers.agreements().length) {
+        <section class="panel agreements">
+          <div class="panel-head"><h2>Indemnités acceptées</h2></div>
+          @for (a of transfers.agreements(); track a.playerId) {
+            <div class="offer">
+              <span class="pos-tag" [attr.data-group]="groupOf[a.player.position]">{{ a.player.position | pos }}</span>
+              <div class="offer-text">
+                <strong><app-player-link [player]="a.player" /> — {{ a.fee | money }}</strong>
+                <span class="muted">Le club a dit oui. Convainquez le joueur avant expiration de l'accord.</span>
+              </div>
+              <button type="button" class="btn btn-primary btn-sm" (click)="negotiating.set(a.playerId)">Négocier le contrat</button>
+            </div>
+          }
+        </section>
+      }
+      <section class="panel">
+        <div class="toolbar filters">
+          <label class="field grow">
+            Rechercher
+            <input class="input" type="search" placeholder="Nom ou club" [value]="search()" (input)="search.set($any($event.target).value)" />
+          </label>
+          <label class="field">
+            Disponibilité
+            <select class="input" [value]="source()" (change)="source.set($any($event.target).value)">
+              <option value="listed">En vente ou libres</option>
+              <option value="free">Libres uniquement</option>
+              <option value="booster">Repérés par mes recruteurs</option>
+              <option value="all">Tous les joueurs</option>
+            </select>
+          </label>
+          <label class="field">
+            Ligne
+            <select class="input" [value]="group()" (change)="group.set($any($event.target).value)">
+              <option value="ALL">Toutes</option>
+              <option value="GK">Gardiens</option>
+              <option value="DEF">Défenseurs</option>
+              <option value="MID">Milieux</option>
+              <option value="ATT">Attaquants</option>
+            </select>
+          </label>
+          <label class="field small">
+            Note min.
+            <input class="input" type="number" min="0" max="99" [value]="minRating()" (input)="minRating.set(numberValue($event))" />
+          </label>
+          <label class="field small">
+            Prix max. (M€)
+            <input class="input" type="number" min="0" step="0.5" [value]="maxPriceM() ?? ''" (input)="setMaxPrice($event)" />
+          </label>
+          <label class="field">
+            Trier par
+            <select class="input" [value]="sortKey()" (change)="sortKey.set($any($event.target).value)">
+              <option value="rating">Note</option>
+              <option value="potential">Potentiel</option>
+              <option value="age">Âge</option>
+              <option value="price">Prix</option>
+              <option value="wage">Salaire</option>
+            </select>
+          </label>
+          <label class="check">
+            <input type="checkbox" [checked]="affordableOnly()" (change)="affordableOnly.set($any($event.target).checked)" />
+            Dans mon budget
+          </label>
+        </div>
+
+        <p class="muted count">{{ filtered().length }} joueur(s)</p>
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Poste</th>
+                <th>Joueur</th>
+                <th>Club</th>
+                <th class="num">Âge</th>
+                <th class="num">Note</th>
+                <th class="num">Pot.</th>
+                <th class="num">Prix</th>
+                <th class="num">Salaire demandé</th>
+                <th></th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (e of visible(); track e.player.id) {
+                <tr>
+                  <td><span class="pos-tag" [attr.data-group]="groupOf[e.player.position]">{{ e.player.position | pos }}</span></td>
+                  <td class="nowrap">{{ e.player.nationality | flag }} <app-player-link [player]="e.player" /></td>
+                  <td class="nowrap">
+                    {{ e.clubName }}
+                    @if (e.player.scoutedBy) {
+                      <span class="tag" [title]="'Carte de booster non signée, repérée par ' + e.player.scoutedBy">Repéré</span>
+                    }
+                    @if (e.player.transferListed) {
+                      <span class="tag tag-warn">En vente</span>
+                    }
+                  </td>
+                  <td class="num">{{ e.player.age }}</td>
+                  <td class="num"><app-scouted-rating [player]="e.player" /></td>
+                  <td class="num"><app-potential [player]="e.player" /></td>
+                  <td class="num" [class.pos-loss]="e.price > club().transferBudget">{{ e.player.clubId ? (e.price | money) : 'Gratuit' }}</td>
+                  <td class="num">{{ e.wageDemand | money }}</td>
+                  <td>
+                    @if (e.knowledge < 100) {
+                      <button type="button" class="btn btn-sm btn-ghost" [class.on]="e.scouting" (click)="transfers.scout(e.player.id)" [attr.aria-pressed]="e.scouting">
+                        {{ e.scouting ? 'Observé (' + e.knowledge + ' %)' : 'Observer' }}
+                      </button>
+                    }
+                  </td>
+                  <td><button type="button" class="btn btn-sm" (click)="openBid(e)">{{ e.player.clubId ? 'Faire une offre' : 'Proposer un contrat' }}</button></td>
+                </tr>
+              } @empty {
+                <tr><td colspan="10" class="empty">Aucun joueur ne correspond à ces critères.</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        @if (filtered().length > visible().length) {
+          <button type="button" class="btn btn-ghost more" (click)="limit.set(limit() + 40)">Afficher plus de joueurs</button>
+        }
+      </section>
+    }
+
+    @case ('scouting') {
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Observations en cours</h2>
+          <span class="muted">{{ transfers.scoutSlots().used }} recruteur(s) occupé(s) sur {{ transfers.scoutSlots().max }}</span>
+        </div>
+        <p class="muted intro">
+          Sans rapport, vous ne voyez qu'une estimation de la note (en pointillés). Chaque semaine d'observation resserre l'intervalle ;
+          à 100 %, la note et le potentiel exacts sont révélés. Affronter une équipe vous renseigne aussi un peu sur ses joueurs.
+        </p>
+        @for (e of scouted().active; track e.player.id) {
+          <div class="scout-row">
+            <span class="pos-tag" [attr.data-group]="groupOf[e.player.position]">{{ e.player.position | pos }}</span>
+            <span><app-player-link [player]="e.player" /> <small class="muted">{{ e.clubName }}</small></span>
+            <span class="progress"><span [style.width.%]="e.knowledge"></span></span>
+            <app-scouted-rating [player]="e.player" />
+            <button type="button" class="btn btn-ghost btn-sm" (click)="transfers.scout(e.player.id)">Arrêter</button>
+          </div>
+        } @empty {
+          <p class="empty">Aucun joueur en observation. Depuis l'onglet Recruter, cliquez sur « Observer ».</p>
+        }
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Rapports complets</h2></div>
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr><th>Poste</th><th>Joueur</th><th>Club</th><th class="num">Âge</th><th class="num">Note</th><th class="num">Pot.</th><th class="num">Prix</th><th></th></tr>
+            </thead>
+            <tbody>
+              @for (e of scouted().reports; track e.player.id) {
+                <tr>
+                  <td><span class="pos-tag" [attr.data-group]="groupOf[e.player.position]">{{ e.player.position | pos }}</span></td>
+                  <td><app-player-link [player]="e.player" /></td>
+                  <td>{{ e.clubName }}</td>
+                  <td class="num">{{ e.player.age }}</td>
+                  <td class="num"><app-rating [value]="e.player.rating" /></td>
+                  <td class="num"><app-potential [player]="e.player" [detailed]="true" /></td>
+                  <td class="num">{{ e.player.clubId ? (e.price | money) : 'Gratuit' }}</td>
+                  <td><button type="button" class="btn btn-sm" (click)="openBid(e)">{{ e.player.clubId ? 'Faire une offre' : 'Proposer un contrat' }}</button></td>
+                </tr>
+              } @empty {
+                <tr><td colspan="8" class="empty">Aucun rapport complet pour l'instant.</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    }
+
+    @case ('offers') {
+      <section class="panel">
+        @for (o of offers(); track o.offer.id) {
+          <div class="offer">
+            <app-club-crest [club]="o.club" [size]="32" />
+            <div class="offer-text">
+              <strong>{{ o.club.name }} propose {{ o.offer.amount | money }} pour <app-player-link [player]="o.player" /></strong>
+              <span class="muted">Note {{ o.player.rating }}, {{ o.player.age }} ans — valeur estimée {{ o.value | money }}. Expire dans {{ 2 - (store.state()!.currentWeek - o.offer.week) }} semaine(s).</span>
+            </div>
+            <div class="offer-actions">
+              <button type="button" class="btn btn-primary btn-sm" (click)="transfers.respond(o.offer.id, true)">Accepter</button>
+              <button type="button" class="btn btn-sm" (click)="transfers.respond(o.offer.id, false)">Refuser</button>
+            </div>
+          </div>
+        } @empty {
+          <p class="empty">Aucune offre en attente. Placez des joueurs sur la liste des transferts pour attirer les acheteurs.</p>
+        }
+      </section>
+    }
+
+    @case ('selling') {
+      <section class="panel">
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Poste</th>
+                <th>Joueur</th>
+                <th class="num">Âge</th>
+                <th class="num">Note</th>
+                <th class="num">Valeur</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of listed(); track row.p.id) {
+                <tr>
+                  <td><span class="pos-tag" [attr.data-group]="groupOf[row.p.position]">{{ row.p.position | pos }}</span></td>
+                  <td><app-player-link [player]="row.p" /></td>
+                  <td class="num">{{ row.p.age }}</td>
+                  <td class="num"><app-rating [value]="row.p.rating" /></td>
+                  <td class="num">{{ row.value | money }}</td>
+                  <td><button type="button" class="btn btn-sm btn-ghost" (click)="transfers.toggleListed(row.p.id)">Retirer de la vente</button></td>
+                </tr>
+              } @empty {
+                <tr><td colspan="6" class="empty">Aucun joueur en vente. Depuis l'écran Effectif, ouvrez la fiche d'un joueur pour le placer sur la liste.</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    }
+  }
+</div>
+
+@if (bidTarget(); as e) {
+  <div class="backdrop" (click)="bidTarget.set(null)">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="bid-title" (click)="$event.stopPropagation()">
+      <h2 id="bid-title">{{ e.player.clubId ? 'Offre pour' : 'Contrat pour' }} {{ e.player | playerName }}</h2>
+      <dl class="kv">
+        <dt>Club actuel</dt>
+        <dd>{{ e.clubName }}</dd>
+        <dt>Note estimée</dt>
+        <dd><app-scouted-rating [player]="e.player" /></dd>
+        <dt>Potentiel estimé</dt>
+        <dd><app-potential [player]="e.player" [detailed]="true" /></dd>
+        @if (e.player.clubId) {
+          <dt>Prix estimé</dt>
+          <dd>{{ e.price | money }}</dd>
+        }
+        <dt>Salaire réclamé</dt>
+        <dd>{{ e.wageDemand | money }} / sem.</dd>
+        <dt>Votre budget</dt>
+        <dd>{{ club().transferBudget | money }}</dd>
+      </dl>
+      @if (e.player.clubId) {
+        <label class="field">
+          Montant de l'offre (M€)
+          <input class="input" type="number" min="0" step="0.05" [value]="bidAmountM()" (input)="bidAmountM.set(numberValue($event))" />
+        </label>
+      }
+      @for (w of bidWarnings(); track w) {
+        <p class="warn">{{ w }}</p>
+      }
+      @if (bidMessage(); as m) {
+        <p class="reply">{{ m }}</p>
+      }
+      <div class="toolbar">
+        <button type="button" class="btn btn-primary" (click)="submitBid()">{{ e.player.clubId ? 'Envoyer l\'offre' : 'Proposer le contrat' }}</button>
+        <button type="button" class="btn btn-ghost" (click)="bidTarget.set(null)">Annuler</button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (negotiating(); as id) {
+  <app-contract-dialog [playerId]="id" (closed)="negotiating.set(null)" />
+}

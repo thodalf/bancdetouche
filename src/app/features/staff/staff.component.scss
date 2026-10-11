@@ -1,0 +1,362 @@
+.page-head .chip {
+  display: inline-flex;
+  flex-direction: column;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+}
+.page-head .chip small {
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  color: var(--chalk-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.section-title {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 1.1rem;
+  margin: 0 0 10px;
+}
+.small {
+  font-size: 0.82rem;
+}
+
+/* ------------------------------------------------------------ conseil */
+.council,
+.candidates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 14px;
+}
+.member,
+.candidate {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--role, var(--amber));
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(0, 0, 0, 0.18));
+}
+[data-role='assistant'] { --role: #f4b942; }
+[data-role='fitness'] { --role: #5fd39a; }
+[data-role='doctor'] { --role: #ef6a5b; }
+[data-role='scout'] { --role: #7cc3ef; }
+[data-role='youth'] { --role: #c08cf0; }
+[data-role='director'] { --role: #c9c48e; }
+
+.member header,
+.candidate header,
+.member footer,
+.candidate footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.member footer,
+.candidate footer {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+}
+.role {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.85rem;
+  color: var(--role, var(--chalk-2));
+}
+.tag {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(124, 195, 239, 0.15);
+  color: var(--info);
+}
+.identity {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.identity h3,
+.candidate h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+}
+.identity p {
+  margin: 2px 0 0;
+  font-size: 0.85rem;
+}
+.portrait {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 56px;
+  border: 2px solid var(--role, var(--amber));
+  border-radius: 50% 50% 8px 8px;
+  background: radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0.4));
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  color: var(--chalk);
+}
+.gauge {
+  display: grid;
+  grid-template-columns: 82px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.82rem;
+}
+.gauge-label {
+  color: var(--chalk-3);
+}
+.bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.bar span {
+  display: block;
+  height: 100%;
+  background: var(--amber);
+}
+.opinion[data-mood='good'] .bar span { background: var(--win); }
+.opinion[data-mood='mid'] .bar span { background: var(--draw); }
+.opinion[data-mood='bad'] .bar span { background: var(--loss); }
+.opinion[data-mood='bad'] strong { color: var(--loss); }
+
+.traits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.trait {
+  position: relative;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  cursor: help;
+}
+.tip {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  bottom: calc(100% + 6px);
+  width: 220px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--turf-950);
+  color: var(--chalk-2);
+  font-size: 0.8rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.trait:hover .tip,
+.trait:focus .tip {
+  opacity: 1;
+}
+
+.effects {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.84rem;
+}
+.effects li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+.effects.inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.effects.inline li {
+  padding: 0;
+}
+.good strong,
+.pill.good {
+  color: var(--win);
+}
+.bad strong,
+.pill.bad {
+  color: var(--loss);
+}
+.member.vacant {
+  border-style: dashed;
+  border-top-style: dashed;
+  justify-content: center;
+  align-items: flex-start;
+  opacity: 0.8;
+}
+.member.vacant p {
+  margin: 0;
+  color: var(--chalk-3);
+}
+
+/* ------------------------------------------------------------ mode de vie */
+.points {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  color: var(--chalk-3);
+}
+.points.has {
+  color: var(--amber);
+}
+.tree {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  counter-reset: perk;
+}
+.perk {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0 10px 40px;
+  border-bottom: 1px solid var(--line-soft);
+  counter-increment: perk;
+  opacity: 0.55;
+}
+.perk::before {
+  content: counter(perk);
+  position: absolute;
+  left: 0;
+  top: 12px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--line);
+  transform: rotate(45deg);
+  font-family: var(--font-display);
+}
+.perk.owned,
+.perk.next {
+  opacity: 1;
+}
+.perk.owned::before {
+  border-color: var(--amber);
+  background: var(--amber);
+  color: var(--amber-ink);
+}
+.perk.next::before {
+  border-color: var(--amber);
+}
+.perk p {
+  margin: 2px 0 4px;
+  font-size: 0.85rem;
+}
+.lifestyles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.ls-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--chalk);
+  font: inherit;
+  cursor: pointer;
+}
+.ls-card:hover,
+.ls-card:focus-visible {
+  border-color: var(--amber);
+}
+.ls-card.current {
+  border-color: var(--amber);
+}
+.ls-card strong {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+}
+.ls-card small {
+  color: var(--amber);
+}
+
+/* ------------------------------------------------------------ effets */
+.totals li {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 5px 0;
+}
+.sub {
+  margin: 16px 0 6px;
+  font-size: 0.95rem;
+}
+.mods,
+.sources {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.84rem;
+}
+.mods li,
+.sources li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.pill {
+  display: inline-block;
+  margin: 0 6px 2px 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 0.78rem;
+}
+details {
+  margin-top: 12px;
+}
+summary {
+  cursor: pointer;
+  color: var(--chalk-2);
+}
+
+/* ------------------------------------------------------------ candidats */
+.segmented {
+  margin-bottom: 12px;
+}
+.candidate.locked {
+  opacity: 0.6;
+}
+.skill {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  color: var(--amber);
+}
+.skill small {
+  font-size: 0.8rem;
+  color: var(--chalk-3);
+}
+.lock {
+  font-size: 0.8rem;
+  color: var(--loss);
+}

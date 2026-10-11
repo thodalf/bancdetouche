@@ -1,0 +1,199 @@
+<div class="page">
+  @if (week.todo() && !state().liveMatch) {
+    <a class="panel week-callout" routerLink="/jeu/semaine">
+      <span class="wc-icon" aria-hidden="true">{{ week.todo() }}</span>
+      <span>
+        <strong>Votre semaine n'est pas terminée</strong>
+        <small class="muted">Programme d'entraînement, préparation de l'adversaire, entretiens et conférence de presse : {{ week.todo() }} tâche(s) en attente.</small>
+      </span>
+      <span class="wc-go">Ouvrir la semaine →</span>
+    </a>
+  }
+  @if (seasonSummary(); as sum) {
+    <section class="panel season-end">
+      <div>
+        <h1>Saison {{ state().season }}-{{ state().season + 1 }} terminée</h1>
+        <p class="lede">
+          {{ club().name }} finit <strong>{{ sum.position }}e</strong> avec {{ sum.row.points }} points
+          ({{ sum.row.won }} V, {{ sum.row.drawn }} N, {{ sum.row.lost }} D).
+          @if (sum.success) {
+            Objectif du top {{ sum.target }} atteint.
+          } @else {
+            Objectif du top {{ sum.target }} manqué.
+          }
+        </p>
+      </div>
+      <dl class="kv honours">
+        <dt>Champion</dt>
+        <dd class="club-cell"><app-club-crest [club]="sum.champion" [size]="20" /> {{ sum.champion.name }}</dd>
+        <dt>{{ cupName }}</dt>
+        <dd>{{ sum.cupWinner?.name ?? '—' }}</dd>
+      </dl>
+      <button type="button" class="btn btn-primary btn-lg" (click)="game.startNextSeason()">Lancer la saison {{ state().season + 1 }}-{{ state().season + 2 }}</button>
+      <p class="muted small">L'intersaison fait vieillir et progresser les joueurs, libère les contrats arrivés à terme et promeut deux jeunes du centre de formation.</p>
+    </section>
+  }
+
+  <div class="hub-grid">
+    <!-- Prochain match -->
+    <section class="panel next-match" aria-labelledby="next-title">
+      <div class="panel-head">
+        <h2 id="next-title">Prochain match</h2>
+        @if (next(); as n) {
+          <span class="tag" [class.tag-warn]="n.fixture.competition === 'cup'">{{ n.fixture.competition === 'cup' ? cupName : leagueName }}</span>
+        }
+      </div>
+      @if (next(); as n) {
+        <div class="matchup">
+          <div class="side">
+            <app-club-crest [club]="n.home ? club() : n.opponent" [size]="56" />
+            <strong>{{ n.home ? club().name : n.opponent.name }}</strong>
+          </div>
+          <div class="versus">
+            <span class="vs">contre</span>
+            <span class="muted">{{ n.week.label }}</span>
+            <span class="date">{{ n.week.date | matchDate: false }}</span>
+          </div>
+          <div class="side">
+            <app-club-crest [club]="n.home ? n.opponent : club()" [size]="56" />
+            <strong>{{ n.home ? n.opponent.name : club().name }}</strong>
+          </div>
+        </div>
+        <div class="opp-line">
+          <span>Adversaire : {{ n.oppPosition }}e, réputation {{ n.opponent.reputation }}</span>
+          <app-form-guide [results]="n.oppForm" />
+        </div>
+        <div class="actions">
+          <a class="btn" routerLink="/jeu/tactique">Régler la tactique</a>
+          @if (n.isThisWeek) {
+            <button type="button" class="btn btn-primary" (click)="game.advance()">Jouer le match</button>
+          } @else {
+            <button type="button" class="btn" (click)="game.advance()">Avancer d'une semaine</button>
+          }
+        </div>
+      } @else {
+        <p class="empty">Aucun match à venir cette saison.</p>
+      }
+    </section>
+
+    <!-- Club -->
+    <section class="panel" aria-labelledby="club-title">
+      <div class="panel-head">
+        <h2 id="club-title">Le club</h2>
+        <a routerLink="/jeu/finances">Finances</a>
+      </div>
+      <dl class="kv">
+        <dt>Moral du groupe</dt>
+        <dd><app-meter [value]="club().morale" label="Moral" /> {{ club().morale }}</dd>
+        <dt>Trésorerie</dt>
+        <dd>{{ club().balance | money }}</dd>
+        <dt>Budget transferts</dt>
+        <dd>{{ club().transferBudget | money }}</dd>
+        <dt>Masse salariale</dt>
+        <dd>{{ store.userWageBill() | money }} / {{ club().wageBudget | money }} ({{ wageUsage() }} %)</dd>
+        <dt>Objectif en championnat</dt>
+        <dd>Top {{ leagueTarget() }} (actuellement {{ store.userPosition() }}e)</dd>
+        <dt><a routerLink="/jeu/club" [queryParams]="{ onglet: 'direction' }">Confiance de la direction</a></dt>
+        <dd><app-meter [value]="state().board.confidence" label="Confiance" /> {{ state().board.confidence }}</dd>
+      </dl>
+      <div class="alerts">
+        @if (squadAlerts().injured.length) {
+          <a class="tag tag-bad" routerLink="/jeu/effectif">{{ squadAlerts().injured.length }} blessé(s)</a>
+        }
+        @if (squadAlerts().tired.length) {
+          <a class="tag tag-warn" routerLink="/jeu/effectif">{{ squadAlerts().tired.length }} joueur(s) fatigué(s)</a>
+        }
+        @if (store.pendingOffers().length) {
+          <a class="tag tag-good" routerLink="/jeu/transferts">{{ store.pendingOffers().length }} offre(s) reçue(s)</a>
+        }
+      </div>
+    </section>
+
+    <!-- Classement -->
+    <section class="panel" aria-labelledby="table-title">
+      <div class="panel-head">
+        <h2 id="table-title">{{ leagueName }}</h2>
+        <a routerLink="/jeu/competitions">Classement complet</a>
+      </div>
+      <table class="data">
+        <thead>
+          <tr>
+            <th class="num">#</th>
+            <th>Club</th>
+            <th class="num">J</th>
+            <th class="num">Diff.</th>
+            <th class="num">Pts</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (r of miniTable(); track r.row.clubId) {
+            <tr [class.is-user]="r.row.clubId === state().userClubId">
+              <td class="num">{{ r.pos }}</td>
+              <td>
+                <span class="club-cell"><app-club-crest [club]="r.club" [size]="18" /><span>{{ r.club.name }}</span></span>
+              </td>
+              <td class="num">{{ r.row.played }}</td>
+              <td class="num">{{ r.row.goalDiff > 0 ? '+' : '' }}{{ r.row.goalDiff }}</td>
+              <td class="num"><strong>{{ r.row.points }}</strong></td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Derniers résultats -->
+    <section class="panel" aria-labelledby="recent-title">
+      <div class="panel-head">
+        <h2 id="recent-title">Derniers résultats</h2>
+      </div>
+      @for (r of recent(); track r.fixture.id) {
+        <div class="result-row">
+          <span class="form-dot" [attr.data-r]="r.result">{{ r.result === 'W' ? 'V' : r.result === 'D' ? 'N' : 'D' }}</span>
+          <span class="muted">{{ r.home ? 'Dom.' : 'Ext.' }}</span>
+          <span class="club-cell"><app-club-crest [club]="r.opponent" [size]="18" /><span>{{ r.opponent.name }}</span></span>
+          <strong class="num">{{ r.score }}@if (r.fixture.penalties) { <small> (t.a.b.)</small> }</strong>
+        </div>
+      } @empty {
+        <p class="empty">La saison n'a pas encore commencé.</p>
+      }
+      @if (topScorers().length) {
+        <h3 class="sub">Meilleurs buteurs du club</h3>
+        @for (p of topScorers(); track p.id) {
+          <div class="result-row scorer">
+            <span><app-player-link [player]="p" /></span>
+            <span class="muted num">{{ p.stats.goals }} but(s), {{ p.stats.assists }} passe(s)</span>
+          </div>
+        }
+      }
+    </section>
+
+    <!-- Actualités -->
+    <section class="panel news" aria-labelledby="news-title">
+      <div class="panel-head">
+        <h2 id="news-title">Messagerie</h2>
+        @if (store.unreadNews()) {
+          <button type="button" class="btn btn-ghost btn-sm" (click)="game.markNewsRead()">Tout marquer comme lu</button>
+        }
+      </div>
+      <ul class="news-list">
+        @for (n of news(); track n.id) {
+          <li [class.unread]="!n.read">
+            <button type="button" class="news-item" (click)="toggleNews(n.id)" [attr.aria-expanded]="openNews() === n.id">
+              <span class="tag">{{ kindLabels[n.kind] }}</span>
+              <span class="news-title">{{ n.title }}</span>
+              <span class="muted small">S{{ n.week + 1 }}</span>
+            </button>
+            @if (openNews() === n.id) {
+              <p class="news-body">{{ n.body }}</p>
+            }
+          </li>
+        } @empty {
+          <li class="empty">Aucun message.</li>
+        }
+      </ul>
+      @if (state().news.length > newsLimit()) {
+        <button type="button" class="btn btn-ghost btn-sm" (click)="newsLimit.set(newsLimit() + 10)">Messages plus anciens</button>
+      }
+    </section>
+  </div>
+</div>

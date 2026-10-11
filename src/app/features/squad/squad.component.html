@@ -1,0 +1,178 @@
+<div class="page">
+  <header class="page-head">
+    <div>
+      <h1>Effectif</h1>
+      <p>{{ totals().count }} joueurs — âge moyen {{ totals().avgAge.toFixed(1) }} ans — valeur totale {{ totals().value | money }}</p>
+    </div>
+    <div class="segmented" role="group" aria-label="Filtrer l'effectif">
+      @for (g of groups; track g.id) {
+        <button type="button" [attr.aria-pressed]="filter() === g.id" (click)="filter.set(g.id)">{{ g.label }}</button>
+      }
+    </div>
+  </header>
+
+  <section class="rules" aria-label="Règles de composition">
+    @for (r of store.ruleChecks(); track r.id) {
+      <div class="rule" [class.bad]="!r.ok">
+        <span class="rule-value">{{ r.value }}<small>/{{ r.limit }}</small></span>
+        <span>
+          {{ r.label }} ({{ r.id === 'homegrown' ? 'minimum' : 'maximum' }})
+          @if (!r.ok) {
+            <small class="fix">{{ r.fix }}</small>
+          }
+        </span>
+      </div>
+    }
+  </section>
+
+  <div class="layout" [class.with-detail]="selected()">
+    <section class="panel">
+      <div class="table-wrap">
+        <table class="data squad">
+          <thead>
+            <tr>
+              <th><button type="button" [attr.data-active]="sortKey() === 'position'" (click)="sortBy('position')">Poste</button></th>
+              <th><button type="button" [attr.data-active]="sortKey() === 'name'" (click)="sortBy('name')">Nom</button></th>
+              <th class="num"><button type="button" [attr.data-active]="sortKey() === 'age'" (click)="sortBy('age')">Âge</button></th>
+              <th class="num"><button type="button" [attr.data-active]="sortKey() === 'rating'" (click)="sortBy('rating')">Note</button></th>
+              <th class="num"><button type="button" [attr.data-active]="sortKey() === 'potential'" (click)="sortBy('potential')">Pot.</button></th>
+              <th class="num"><button type="button" [attr.data-active]="sortKey() === 'value'" (click)="sortBy('value')">Valeur</button></th>
+              <th class="num"><button type="button" [attr.data-active]="sortKey() === 'wage'" (click)="sortBy('wage')">Salaire/sem.</button></th>
+              <th><button type="button" [attr.data-active]="sortKey() === 'status'" (click)="sortBy('status')">Statut</button></th>
+              <th><button type="button" [attr.data-active]="sortKey() === 'morale'" (click)="sortBy('morale')">Moral</button></th>
+              <th><button type="button" [attr.data-active]="sortKey() === 'fatigue'" (click)="sortBy('fatigue')">Condition</button></th>
+              <th><button type="button" [attr.data-active]="sortKey() === 'form'" (click)="sortBy('form')">Forme</button></th>
+              <th class="num"><button type="button" [attr.data-active]="sortKey() === 'apps'" (click)="sortBy('apps')">MJ</button></th>
+              <th class="num"><button type="button" [attr.data-active]="sortKey() === 'goals'" (click)="sortBy('goals')">Buts</button></th>
+              <th class="num"><button type="button" [attr.data-active]="sortKey() === 'avg'" (click)="sortBy('avg')">Moy.</button></th>
+              <th>État</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (r of visible(); track r.player.id) {
+              <tr class="clickable" [class.selected]="r.player.id === selectedId()" (click)="select(r.player.id)">
+                <td><span class="pos-tag" [attr.data-group]="groupOf[r.player.position]">{{ r.player.position | pos }}</span></td>
+                <td class="name-cell">
+                  <button type="button" class="name-btn" (click)="$event.stopPropagation(); select(r.player.id)">
+                    {{ r.player.nationality | flag }} {{ r.player | playerName }}
+                  </button>
+                  @if (r.homegrown) {
+                    <abbr class="mini" title="Formé au club">FC</abbr>
+                  }
+                  @if (isNonEu(r.player)) {
+                    <abbr class="mini ext" title="Extracommunautaire">EXT</abbr>
+                  }
+                </td>
+                <td class="num">{{ r.player.age }}</td>
+                <td class="num"><app-rating [value]="r.player.rating" /></td>
+                <td class="num"><app-potential [player]="r.player" /></td>
+                <td class="num">{{ r.value | money }}</td>
+                <td class="num">{{ r.player.wage | money }}</td>
+                <td class="nowrap">{{ statusLabels[r.player.squadStatus] }}</td>
+                <td><app-meter [value]="r.player.morale" [label]="'Moral : ' + moraleLabels[moraleLevel(r.player.morale)]" /></td>
+                <td><app-meter [value]="r.player.fatigue" [inverted]="true" label="Condition physique" /></td>
+                <td><app-meter [value]="r.player.form * 10" label="Forme" /></td>
+                <td class="num">{{ r.player.stats.appearances }}</td>
+                <td class="num">{{ r.player.stats.goals }}</td>
+                <td class="num">{{ r.avg === null ? '—' : r.avg.toFixed(1) }}</td>
+                <td class="status">
+                  @if (r.player.injuryWeeks > 0) {
+                    <span class="tag tag-bad">{{ r.player.injury ?? 'Blessé' }} — {{ r.player.injuryWeeks }} sem.</span>
+                  } @else if (r.player.fatigue >= 60) {
+                    <span class="tag tag-warn">Épuisé</span>
+                  } @else if (r.starter) {
+                    <span class="tag tag-good">Titulaire</span>
+                  }
+                  @if (r.player.morale < 30) {
+                    <span class="tag tag-bad">Mécontent</span>
+                  }
+                  @if (r.player.transferListed) {
+                    <span class="tag tag-warn">À vendre</span>
+                  }
+                  @if (r.player.contractYears <= 1) {
+                    <span class="tag">Fin de contrat</span>
+                  }
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="15" class="empty">{{ filter() === 'INJ' ? "Aucun blessé ni joueur épuisé : l'infirmerie est vide." : 'Aucun joueur.' }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    @if (selected(); as r) {
+      <aside class="panel detail" aria-label="Fiche joueur">
+        <div class="panel-head">
+          <div>
+            <span class="pos-tag" [attr.data-group]="groupOf[r.player.position]">{{ r.player.position | pos }}</span>
+            <h2><app-player-link [player]="r.player" /></h2>
+            <p class="muted">
+              {{ r.player.nationality | flag }} {{ r.player.age }} ans{{ isNonEu(r.player) ? ', extracommunautaire' : '' }}{{ r.homegrown ? ', formé au club' : '' }}
+            </p>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" (click)="selectedId.set(null)" aria-label="Fermer la fiche">✕</button>
+        </div>
+
+        <div class="ratings">
+          <div><span class="stat-big">{{ r.player.rating }}</span><small class="muted">Note</small></div>
+          <div class="pot"><app-potential [player]="r.player" /><small class="muted">Potentiel (recruteurs)</small></div>
+          <div><span class="stat-big">{{ 100 - r.player.fatigue }}</span><small class="muted">Condition</small></div>
+        </div>
+
+        <div class="morale-box" [attr.data-level]="moraleLevel(r.player.morale)">
+          <strong>Moral : {{ moraleLabels[moraleLevel(r.player.morale)] }} ({{ r.player.morale }})</strong>
+          <span>{{ moraleReason(r.player) }}</span>
+        </div>
+
+        @if (r.player.injuryWeeks > 0) {
+          <p class="injury">{{ r.player.injury }} : indisponible {{ r.player.injuryWeeks }} semaine(s).</p>
+        }
+
+        <dl class="kv">
+          <dt>Statut promis</dt>
+          <dd>{{ statusLabels[r.player.squadStatus] }}</dd>
+          <dt>Salaire</dt>
+          <dd>{{ r.player.wage | money }} / sem.</dd>
+          <dt>Contrat</dt>
+          <dd>{{ r.player.contractYears }} an(s)</dd>
+          <dt>Clause libératoire</dt>
+          <dd>{{ r.player.releaseClause ? (r.player.releaseClause | money) : 'Aucune' }}</dd>
+          <dt>Valeur marchande</dt>
+          <dd>{{ r.value | money }}</dd>
+          <dt>Saison</dt>
+          <dd>{{ r.player.stats.appearances }} MJ, {{ r.player.stats.goals }} buts, {{ r.player.stats.assists }} passes</dd>
+        </dl>
+
+        @if (r.player.transferListed) {
+          <p class="listed-note">Sur la liste des transferts : les clubs intéressés font leurs offres chaque semaine (Transferts › Offres reçues).</p>
+        }
+        <div class="detail-actions">
+          <button type="button" class="btn btn-primary" (click)="negotiating.set(r.player.id)">Négocier une prolongation</button>
+          <button type="button" class="btn" (click)="toggleListed(r.player)">
+            {{ r.player.transferListed ? 'Retirer de la liste des transferts' : 'Placer sur la liste des transferts' }}
+          </button>
+          <button type="button" class="btn btn-danger" (click)="confirm.set('release')">Résilier le contrat</button>
+          <a class="btn btn-ghost" routerLink="/jeu/tactique">Voir la composition</a>
+        </div>
+
+        @if (confirm(); as action) {
+          <div class="confirm" role="alertdialog" aria-live="assertive">
+            <p>Résilier le contrat de {{ r.player | playerName }} coûte {{ severance(r.player) | money }} d'indemnités. Il partira libre.</p>
+            <div class="detail-actions row">
+              <button type="button" class="btn btn-primary" (click)="doConfirm(r.player)">Résilier</button>
+              <button type="button" class="btn btn-ghost" (click)="confirm.set(null)">Annuler</button>
+            </div>
+          </div>
+        }
+      </aside>
+    }
+  </div>
+</div>
+
+@if (negotiating(); as id) {
+  <app-contract-dialog [playerId]="id" (closed)="negotiating.set(null)" />
+}

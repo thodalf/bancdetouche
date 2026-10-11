@@ -1,0 +1,167 @@
+<div class="page">
+  <header class="page-head">
+    <div>
+      <h1>Compétitions</h1>
+      <p>Saison {{ state().season }}-{{ state().season + 1 }} : {{ leagueName }} (30 journées) et {{ cupName }} (élimination directe).</p>
+    </div>
+  </header>
+
+  <div class="segmented" role="tablist">
+    <button type="button" role="tab" [attr.aria-selected]="tab() === 'table'" (click)="tab.set('table')">Classement</button>
+    <button type="button" role="tab" [attr.aria-selected]="tab() === 'calendar'" (click)="tab.set('calendar')">Calendrier</button>
+    <button type="button" role="tab" [attr.aria-selected]="tab() === 'cup'" (click)="tab.set('cup')">{{ cupName }}</button>
+    <button type="button" role="tab" [attr.aria-selected]="tab() === 'stats'" (click)="tab.set('stats')">Statistiques</button>
+  </div>
+
+  @switch (tab()) {
+    @case ('table') {
+      <section class="panel">
+        <div class="table-wrap">
+          <table class="data standings">
+            <thead>
+              <tr>
+                <th class="num">#</th>
+                <th>Club</th>
+                <th class="num">J</th>
+                <th class="num">G</th>
+                <th class="num">N</th>
+                <th class="num">P</th>
+                <th class="num">BP</th>
+                <th class="num">BC</th>
+                <th class="num">Diff.</th>
+                <th class="num">Pts</th>
+                <th>Forme</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (r of table(); track r.row.clubId) {
+                <tr [class.is-user]="r.row.clubId === state().userClubId" [attr.data-zone]="r.pos <= 3 ? 'top' : r.pos > table().length - 3 ? 'bottom' : null">
+                  <td class="num pos">{{ r.pos }}</td>
+                  <td>
+                    <span class="club-cell"><app-club-crest [club]="r.club" [size]="20" /><span>{{ r.club.name }}</span></span>
+                  </td>
+                  <td class="num">{{ r.row.played }}</td>
+                  <td class="num">{{ r.row.won }}</td>
+                  <td class="num">{{ r.row.drawn }}</td>
+                  <td class="num">{{ r.row.lost }}</td>
+                  <td class="num">{{ r.row.goalsFor }}</td>
+                  <td class="num">{{ r.row.goalsAgainst }}</td>
+                  <td class="num">{{ r.row.goalDiff > 0 ? '+' : '' }}{{ r.row.goalDiff }}</td>
+                  <td class="num"><strong>{{ r.row.points }}</strong></td>
+                  <td><app-form-guide [results]="r.row.form" /></td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        <p class="legend muted"><span class="swatch top"></span> Podium <span class="swatch bottom"></span> Bas de tableau — départage : points, différence de buts, buts marqués.</p>
+      </section>
+    }
+
+    @case ('calendar') {
+      <section class="panel">
+        <div class="cal-head">
+          <button type="button" class="btn btn-sm" (click)="step(-1)" [disabled]="viewWeek() === 0" aria-label="Semaine précédente">‹</button>
+          <div class="cal-title">
+            <strong>{{ weekInfo().label }}</strong>
+            <span class="muted">{{ weekInfo().competition === 'cup' ? cupName : leagueName }} — {{ weekInfo().date | matchDate }}</span>
+          </div>
+          <button type="button" class="btn btn-sm" (click)="step(1)" [disabled]="viewWeek() >= state().weeks.length - 1" aria-label="Semaine suivante">›</button>
+          <label class="check">
+            <input type="checkbox" [checked]="onlyMine()" (change)="onlyMine.set($any($event.target).checked)" />
+            Toute la saison de mon club
+          </label>
+        </div>
+
+        <ul class="fixtures">
+          @for (f of onlyMine() ? store.userFixtures() : weekFixtures(); track f.id) {
+            <li [class.mine]="isUser(f)">
+              <button type="button" class="fixture" (click)="toggle(f.id)" [attr.aria-expanded]="expanded() === f.id" [disabled]="!f.played">
+                @if (onlyMine()) {
+                  <span class="muted wk">{{ weekLabel(f) }}</span>
+                }
+                <span class="team home" [class.winner]="winnerOf(f) === f.homeId">
+                  {{ clubs().get(f.homeId)!.name }}
+                  <app-club-crest [club]="clubs().get(f.homeId)!" [size]="20" />
+                </span>
+                <span class="score">
+                  @if (f.played) {
+                    {{ f.homeGoals }} – {{ f.awayGoals }}
+                  } @else {
+                    <span class="muted">–</span>
+                  }
+                </span>
+                <span class="team away" [class.winner]="winnerOf(f) === f.awayId">
+                  <app-club-crest [club]="clubs().get(f.awayId)!" [size]="20" />
+                  {{ clubs().get(f.awayId)!.name }}
+                </span>
+                @if (f.penalties) {
+                  <span class="pens muted">t.a.b. {{ f.penalties.home }}-{{ f.penalties.away }}</span>
+                }
+              </button>
+              @if (expanded() === f.id) {
+                <ul class="events">
+                  @for (e of f.events; track $index) {
+                    @if (e.type === 'goal' || e.type === 'red' || isUser(f)) {
+                      <li [attr.data-type]="e.type"><span class="min">{{ e.minute }}'</span> {{ e.text }}</li>
+                    }
+                  } @empty {
+                    <li class="muted">Aucun fait de match notable.</li>
+                  }
+                </ul>
+              }
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
+    @case ('cup') {
+      <section class="bracket">
+        @for (round of cupRounds(); track round.label) {
+          <div class="panel round">
+            <h3>{{ round.label }}</h3>
+            <p class="muted small">{{ round.week?.date | matchDate: false }}</p>
+            @for (f of round.fixtures; track f.id) {
+              <div class="tie" [class.mine]="isUser(f)">
+                <div class="tie-team" [class.out]="f.played && winnerOf(f) !== f.homeId">
+                  <app-club-crest [club]="clubs().get(f.homeId)!" [size]="18" />
+                  <span>{{ clubs().get(f.homeId)!.shortName }}</span>
+                  <strong class="num">{{ f.played ? f.homeGoals : '' }}{{ f.penalties ? ' (' + f.penalties.home + ')' : '' }}</strong>
+                </div>
+                <div class="tie-team" [class.out]="f.played && winnerOf(f) !== f.awayId">
+                  <app-club-crest [club]="clubs().get(f.awayId)!" [size]="18" />
+                  <span>{{ clubs().get(f.awayId)!.shortName }}</span>
+                  <strong class="num">{{ f.played ? f.awayGoals : '' }}{{ f.penalties ? ' (' + f.penalties.away + ')' : '' }}</strong>
+                </div>
+              </div>
+            } @empty {
+              <p class="muted small">Tirage après le tour précédent.</p>
+            }
+          </div>
+        }
+      </section>
+    }
+
+    @case ('stats') {
+      <div class="grid grid-3">
+        @for (block of [{ title: 'Buteurs', rows: scorers() }, { title: 'Passeurs', rows: assisters() }, { title: 'Meilleures notes (5 MJ min.)', rows: bestRated() }]; track block.title) {
+          <section class="panel">
+            <div class="panel-head"><h2>{{ block.title }}</h2></div>
+            <ol class="leaders">
+              @for (r of block.rows; track r.p.id) {
+                <li [class.mine]="r.p.clubId === state().userClubId">
+                  <app-club-crest [club]="r.club" [size]="16" />
+                  <span class="lname"><app-player-link [player]="r.p" [short]="true" /></span>
+                  <strong class="num">{{ r.v }}</strong>
+                </li>
+              } @empty {
+                <li class="muted">Pas encore de données.</li>
+              }
+            </ol>
+          </section>
+        }
+      </div>
+    }
+  }
+</div>

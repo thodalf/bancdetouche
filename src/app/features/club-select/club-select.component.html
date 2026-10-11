@@ -1,0 +1,97 @@
+<main class="page select">
+  <header class="page-head">
+    <div>
+      <a routerLink="/" class="back">‹ Accueil</a>
+      <h1>Choisissez votre club</h1>
+      <p>16 clubs de la {{ leagueName }}. Plus la réputation est haute, plus les moyens… et les attentes sont élevés.</p>
+    </div>
+  </header>
+
+  <div class="layout">
+    <section class="panel list" aria-label="Clubs disponibles">
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Club</th>
+              <th>Niveau</th>
+              <th class="num">Rép.</th>
+              <th class="num">Effectif</th>
+              <th class="num">Note</th>
+              <th class="num">Budget transferts</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of clubs(); track row.club.id) {
+              <tr class="clickable" [class.selected]="row.club.id === selectedId()" (click)="select(row.club.id)">
+                <td>
+                  <button type="button" class="club-cell club-btn" (click)="select(row.club.id)" [attr.aria-pressed]="row.club.id === selectedId()">
+                    <app-club-crest [club]="row.club" [size]="24" />
+                    <span>{{ row.club.name }}</span>
+                  </button>
+                </td>
+                <td class="stars" [attr.aria-label]="row.club.level + ' étoiles sur 5'">
+                  @for (on of row.stars; track $index) {
+                    <span [class.on]="on">★</span>
+                  }
+                </td>
+                <td class="num">{{ row.club.reputation }}</td>
+                <td class="num">{{ row.squad.length }}</td>
+                <td class="num"><app-rating [value]="row.rating" /></td>
+                <td class="num">{{ row.club.transferBudget | money }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    @if (selected(); as s) {
+      <aside class="panel detail" [style.--club]="s.club.colors.primary">
+        <div class="detail-head">
+          <app-club-crest [club]="s.club" [size]="64" />
+          <div>
+            <h2>{{ s.club.name }}</h2>
+            <p class="muted">{{ s.club.stadium }} — {{ s.club.capacity.toLocaleString('fr-FR') }} places</p>
+          </div>
+        </div>
+
+        <dl class="kv">
+          <dt>Attente de la direction</dt>
+          <dd>{{ expectation() }}</dd>
+          <dt>Trésorerie</dt>
+          <dd>{{ s.club.balance | money }}</dd>
+          <dt>Budget transferts</dt>
+          <dd>{{ s.club.transferBudget | money }}</dd>
+          <dt>Masse salariale</dt>
+          <dd>{{ s.wageBill | money }} / sem.</dd>
+          <dt>Infrastructures</dt>
+          <dd>Stade {{ s.club.facilities.stadium }}, entraînement {{ s.club.facilities.training }}, formation {{ s.club.facilities.academy }}, recrutement {{ s.club.facilities.scouting }} (sur 5)</dd>
+          <dt>Note du onze type</dt>
+          <dd><app-rating [value]="s.rating" /></dd>
+        </dl>
+
+        <div>
+          <h3 class="sub">Joueurs clés</h3>
+          <ul class="key-players">
+            @for (p of keyPlayers(); track p.id) {
+              <li>
+                <span class="pos-tag" [attr.data-group]="groupOf[p.position]">{{ p.position | pos }}</span>
+                <span class="name">{{ p.nationality | flag }} {{ p | playerName }}</span>
+                <span class="muted">{{ p.age }} ans</span>
+                <app-rating [value]="p.rating" />
+              </li>
+            }
+          </ul>
+        </div>
+
+        <label class="field">
+          Votre nom d'entraîneur
+          <input class="input" type="text" maxlength="40" placeholder="Ex. : Thomas Ollivier" [value]="managerName()" (input)="managerName.set($any($event.target).value)" />
+        </label>
+
+        <button type="button" class="btn btn-primary btn-lg" (click)="start()">Prendre les commandes de {{ s.club.shortName }}</button>
+      </aside>
+    }
+  </div>
+</main>

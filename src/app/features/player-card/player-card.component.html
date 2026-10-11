@@ -1,0 +1,120 @@
+@if (view(); as v) {
+  <div class="backdrop pc-backdrop" (click)="card.close()">
+    <article #dialog class="pc" role="dialog" aria-modal="true" aria-labelledby="pc-name" tabindex="-1" (click)="$event.stopPropagation()" [style.--kit]="v.club?.colors?.primary ?? '#3a5a4c'" [style.--kit2]="v.club?.colors?.secondary ?? '#8fae9f'">
+      <header class="pc-head">
+        <div class="pc-rating">
+          <app-scouted-rating [player]="v.p" />
+          <span class="pos-tag" [attr.data-group]="groupOf[v.p.position]">{{ v.p.position | pos }}</span>
+        </div>
+        <div class="pc-id">
+          <h2 id="pc-name"><small>{{ v.p.firstName }}</small>{{ v.p.lastName }}</h2>
+          <p>{{ v.p.nationality | flag }} {{ v.p.age }} ans · {{ positionNames[v.p.position] }}</p>
+        </div>
+        <button type="button" class="pc-close" (click)="card.close()" aria-label="Fermer la fiche">×</button>
+      </header>
+
+      <div class="pc-club">
+        @if (v.club) {
+          <app-club-crest [club]="v.club" [size]="26" />
+          <span><strong>{{ v.club.name }}</strong>
+            @if (v.own) { <small class="muted"> · {{ statusLabels[v.p.squadStatus] }}</small> }
+          </span>
+        } @else if (v.inWorld) {
+          <span class="free">Joueur libre</span>
+        } @else {
+          <span class="free">Carte de booster</span>
+        }
+        @if (v.p.scoutedBy) {
+          <span class="tag">Repéré par {{ v.p.scoutedBy }}</span>
+        }
+        @if (v.p.youth) {
+          <span class="tag">Centre de formation</span>
+        }
+        @if (v.p.transferListed) {
+          <span class="tag warn">Transférable</span>
+        }
+      </div>
+
+      <div class="pc-traits" aria-label="Personnalité">
+        <span class="pc-traits-label">Personnalité</span>
+        @if (v.traits === null) {
+          <span class="muted">Inconnue : faites-le observer</span>
+        } @else {
+          @for (tr of v.traits; track tr.id) {
+            <span class="trait" [title]="tr.description" tabindex="0">{{ tr.label }}<span class="tip" role="tooltip">{{ tr.description }}</span></span>
+          } @empty {
+            <span class="muted">Sans histoire</span>
+          }
+        }
+      </div>
+
+      <section class="pc-grid">
+        <div class="pc-block">
+          <h3>Potentiel</h3>
+          <app-potential [player]="v.p" [detailed]="true" />
+          @if (!v.own) {
+            <div class="know" [attr.aria-label]="'Connaissance ' + v.knowledge + ' %'">
+              <span>Connaissance</span>
+              <span class="bar"><span [style.width.%]="v.knowledge"></span></span>
+              <strong>{{ v.knowledge }} %</strong>
+            </div>
+          }
+        </div>
+        <div class="pc-block">
+          <h3>Condition</h3>
+          @if (v.p.injuryWeeks > 0) {
+            <p class="injury">{{ v.p.injury ?? 'Blessé' }} · {{ v.p.injuryWeeks }} sem.</p>
+          }
+          <div class="know">
+            <span>Physique</span>
+            <span class="bar" [attr.data-level]="v.condition >= 75 ? 'good' : v.condition >= 50 ? 'mid' : 'bad'"><span [style.width.%]="v.condition"></span></span>
+            <strong>{{ v.condition }} %</strong>
+          </div>
+          <div class="know">
+            <span>Moral</span>
+            <span class="bar" [attr.data-level]="v.p.morale >= 55 ? 'good' : v.p.morale >= 35 ? 'mid' : 'bad'"><span [style.width.%]="v.p.morale"></span></span>
+            <strong>{{ v.moraleLabel }}</strong>
+          </div>
+          <p class="muted small">Forme : {{ v.formLabel }}</p>
+        </div>
+      </section>
+
+      <dl class="pc-facts">
+        <div><dt>Valeur</dt><dd>{{ v.value | money }}</dd></div>
+        <div><dt>Salaire</dt><dd>{{ v.p.wage | money }}/sem.</dd></div>
+        <div><dt>Contrat</dt><dd>{{ v.p.contractYears ? v.p.contractYears + ' an(s)' : '—' }}</dd></div>
+        <div><dt>Clause</dt><dd>{{ v.p.releaseClause === null ? 'Aucune' : v.clauseKnown ? (v.p.releaseClause | money) : '?' }}</dd></div>
+      </dl>
+
+      <section class="pc-season">
+        <h3>Saison</h3>
+        <div class="stats">
+          <span><strong>{{ v.p.stats.appearances }}</strong> matchs</span>
+          <span><strong>{{ v.p.stats.goals }}</strong> buts</span>
+          <span><strong>{{ v.p.stats.assists }}</strong> passes déc.</span>
+          <span><strong>{{ v.avg !== null ? v.avg.toFixed(2) : '—' }}</strong> note moy.</span>
+        </div>
+        @if (v.recent.length) {
+          <div class="recent" aria-label="Participation aux derniers matchs">
+            @for (r of v.recent; track $index) {
+              <span [class.on]="r" [attr.title]="r ? 'A joué' : 'N’a pas joué'"></span>
+            }
+            <small class="muted">derniers matchs</small>
+          </div>
+        }
+      </section>
+
+      <footer class="pc-actions">
+        @if (v.own) {
+          <button type="button" class="btn btn-primary" (click)="card.showInSquad(v.p.id)">Ouvrir dans l'effectif</button>
+        } @else if (v.inWorld && !v.p.youth) {
+          <button type="button" class="btn btn-primary" (click)="card.makeOffer(v.p.id)">{{ v.p.clubId ? 'Faire une offre' : 'Proposer un contrat' }}</button>
+          @if (v.knowledge < 100) {
+            <button type="button" class="btn" [disabled]="v.scouting" (click)="scout(v.p.id)">{{ v.scouting ? 'En observation' : 'Faire observer' }}</button>
+          }
+        }
+        <button type="button" class="btn btn-ghost" (click)="card.close()">Fermer</button>
+      </footer>
+    </article>
+  </div>
+}

@@ -1,0 +1,142 @@
+<div class="page">
+  <header class="page-head">
+    <div>
+      <h1>Boosters</h1>
+      <p>Envoyez vos recruteurs en mission : à leur retour, ils rapportent un booster de joueurs inédits. Plus le recruteur est compétent et la mission longue, meilleur est le dossier.</p>
+    </div>
+  </header>
+
+  @if (boosters.pending(); as pack) {
+    <section class="panel opening" aria-live="polite">
+      <div class="panel-head">
+        <h2>Booster {{ tierLabels[pack.tier] }} : choisissez un joueur</h2>
+        <span class="muted">Repéré par {{ pack.scoutName }} · marge salariale : {{ wageRoom() | money }}/sem.</span>
+      </div>
+      <div class="cards">
+        @for (c of cards(); track c.player.id) {
+          <article class="card" [attr.data-rarity]="c.rarity" [style.animation-delay.ms]="c.delay">
+            <header>
+              <span class="card-rating">{{ c.player.rating }}</span>
+              <span class="pos-tag" [attr.data-group]="groupOf[c.player.position]">{{ c.player.position | pos }}</span>
+              <span class="rarity">{{ rarityLabels[c.rarity] }}</span>
+            </header>
+            <h3><app-player-link [player]="c.player" /></h3>
+            <p class="muted">{{ c.player.nationality | flag }} {{ c.player.age }} ans</p>
+            <dl class="kv">
+              <dt>Potentiel</dt>
+              <dd><app-potential [player]="c.player" /></dd>
+              <dt>Salaire</dt>
+              <dd [class.pos-loss]="!c.fits">{{ c.player.wage | money }}/sem.</dd>
+              <dt>Contrat</dt>
+              <dd>3 ans</dd>
+            </dl>
+            <button type="button" class="btn btn-primary" (click)="boosters.claim(c.player.id)">Signer ce joueur</button>
+          </article>
+        }
+      </div>
+      <div class="pack-foot">
+        <button type="button" class="btn btn-ghost" (click)="boosters.discard()">Ne signer personne</button>
+        <span class="muted small">Les joueurs non retenus deviennent libres et restent visibles dans Transferts (filtre « Repérés par mes recruteurs »), avec le rapport du recruteur.</span>
+      </div>
+    </section>
+  }
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Missions des recruteurs</h2>
+      <span class="muted">Trésorerie : {{ store.userClub()?.balance | money }}</span>
+    </div>
+    @if (scouts().length) {
+      <div class="scouts">
+        @for (r of scouts(); track r.scout.id) {
+          <article class="scout" [class.away]="!!r.mission">
+            <header>
+              <strong>{{ r.scout.firstName }} {{ r.scout.lastName }}</strong>
+              <span class="skill" title="Compétence sur 20">{{ r.scout.skill }}<small>/20</small></span>
+            </header>
+            @if (r.mission; as m) {
+              <p>En mission : <strong>{{ focusLabels[m.focus] }}</strong></p>
+              <span class="xp-bar" role="progressbar" [attr.aria-valuenow]="r.progress" aria-valuemin="0" aria-valuemax="100"><span [style.width.%]="r.progress"></span></span>
+              <p class="muted small">Retour dans {{ m.weeksLeft }} semaine(s)</p>
+            } @else {
+              <label class="field">
+                <span>Consigne</span>
+                <select class="input" [value]="r.draft.focus" (change)="setFocus(r.scout.id, $any($event.target).value)" [attr.aria-label]="'Consigne de ' + r.scout.lastName">
+                  @for (f of focuses; track f) {
+                    <option [value]="f" [selected]="f === r.draft.focus">{{ focusLabels[f] }}</option>
+                  }
+                </select>
+              </label>
+              <div class="durations" role="group" aria-label="Durée de la mission">
+                @for (w of durations; track w) {
+                  <button type="button" class="btn btn-sm" [class.btn-primary]="w === r.draft.weeks" [attr.aria-pressed]="w === r.draft.weeks" (click)="setWeeks(r.scout.id, w)">{{ w }} sem.</button>
+                }
+              </div>
+              @if (r.preview; as p) {
+                <dl class="kv">
+                  <dt>Coût</dt>
+                  <dd [class.pos-loss]="!p.affordable">{{ p.cost | money }}</dd>
+                  <dt>Durée réelle</dt>
+                  <dd>{{ p.weeks }} sem.</dd>
+                  <dt>Booster attendu</dt>
+                  <dd>
+                    <span class="mini-pack" [attr.data-tier]="p.tier"></span> {{ tierLabels[p.tier] }}
+                    @if (p.low !== p.high) {
+                      <small class="muted">({{ tierLabels[p.low] }} à {{ tierLabels[p.high] }})</small>
+                    }
+                  </dd>
+                </dl>
+                <button type="button" class="btn btn-primary btn-sm" [disabled]="!p.affordable" (click)="send(r.scout.id, r.draft.focus, r.draft.weeks)">Envoyer en mission</button>
+              }
+            }
+          </article>
+        }
+      </div>
+    } @else {
+      <p class="empty">Aucun recruteur dans votre staff. <a routerLink="/jeu/staff">Engagez-en un</a> pour obtenir des boosters.</p>
+    }
+    <p class="muted small">La cellule de recrutement (Club › Infrastructures) améliore chaque mission et fixe le nombre de recruteurs. Les traits « Globe-trotteur » et « Méticuleux » et le mode de vie Intendant pèsent aussi.</p>
+  </section>
+
+  <div class="grid grid-2">
+    <section class="panel">
+      <div class="panel-head"><h2>Dossiers rapportés</h2><span class="muted">{{ boosters.opened() }} ouverts</span></div>
+      @if (boosters.items().length) {
+        <ul class="inventory">
+          @for (b of boosters.items(); track b.id) {
+            <li>
+              <span class="mini-pack" [attr.data-tier]="b.tier"></span>
+              <span>
+                Booster {{ tierLabels[b.tier] }} · {{ focusLabels[b.focus] }}
+                <small class="muted">Repéré par {{ b.scoutName }}</small>
+              </span>
+              <button type="button" class="btn btn-sm btn-primary" [disabled]="!!boosters.pending()" (click)="boosters.open(b.id)">Ouvrir</button>
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="empty">Aucun booster en réserve : envoyez un recruteur en mission.</p>
+      }
+    </section>
+
+    <section class="panel level" aria-label="Niveau d'entraîneur">
+      <div class="level-badge">
+        <small>Niveau</small>
+        <strong>{{ boosters.level() }}</strong>
+      </div>
+      <div class="level-body">
+        <div class="xp-line">
+          <span>{{ boosters.xp() }} / {{ boosters.xpNeeded() }} XP</span>
+          <span class="muted">{{ boosters.perkPoints() }} point(s) d'avantage</span>
+        </div>
+        <span class="xp-bar" role="progressbar" [attr.aria-valuenow]="xpPct()" aria-valuemin="0" aria-valuemax="100"><span [style.width.%]="xpPct()"></span></span>
+        <p class="muted small">Chaque niveau rapporte un point d'avantage à dépenser dans votre mode de vie, page <a routerLink="/jeu/staff">Staff</a>.</p>
+        <ul class="xp-rules">
+          @for (r of xpRules; track r.label) {
+            <li>{{ r.label }} <strong>+{{ r.value }}</strong></li>
+          }
+        </ul>
+      </div>
+    </section>
+  </div>
+</div>

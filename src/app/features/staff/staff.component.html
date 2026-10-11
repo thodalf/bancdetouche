@@ -1,0 +1,211 @@
+<div class="page">
+  <header class="page-head">
+    <div>
+      <h1>Staff</h1>
+      <p>Votre conseil : chaque personnage améliore une partie du jeu selon sa compétence, ses traits et son opinion de vous. Un membre mécontent travaille moins bien et peut démissionner.</p>
+    </div>
+    <span class="chip"><small>Salaires du staff</small>{{ staff.wageBill() | money }}/sem.</span>
+  </header>
+
+  <section aria-labelledby="council-title">
+    <h2 id="council-title" class="section-title">Le conseil</h2>
+    <div class="council">
+      @for (c of staff.staff(); track c.member.id) {
+        <article class="member" [attr.data-role]="c.member.role">
+          <header>
+            <span class="role">{{ roleLabels[c.member.role] }}</span>
+            @if (c.member.missionId) {
+              <span class="tag">En mission</span>
+            }
+          </header>
+          <div class="identity">
+            <span class="portrait" aria-hidden="true">{{ c.member.firstName[0] }}{{ c.member.lastName[0] }}</span>
+            <div>
+              <h3>{{ c.name }}</h3>
+              <p class="muted">{{ c.member.nationality | flag }} {{ c.member.age }} ans · contrat {{ c.member.contractYears }} an(s)</p>
+            </div>
+          </div>
+
+          <div class="gauge" [attr.aria-label]="'Compétence ' + c.member.skill + ' sur 20'">
+            <span class="gauge-label">Compétence</span>
+            <span class="bar"><span [style.width.%]="c.member.skill * 5"></span></span>
+            <strong>{{ c.member.skill }}</strong>
+          </div>
+          <div class="gauge opinion" [attr.data-mood]="c.member.opinion >= 50 ? 'good' : c.member.opinion >= 30 ? 'mid' : 'bad'" [attr.aria-label]="'Opinion ' + c.member.opinion.toFixed(0) + ' sur 100'">
+            <span class="gauge-label">Opinion</span>
+            <span class="bar"><span [style.width.%]="c.member.opinion"></span></span>
+            <strong>{{ opinionLabel(c.member.opinion) }}</strong>
+          </div>
+
+          <ul class="traits" aria-label="Traits">
+            @for (t of c.traits; track t.id) {
+              <li class="trait" tabindex="0">{{ t.label }}<span class="tip" role="tooltip">{{ t.description }}</span></li>
+            }
+          </ul>
+
+          <ul class="effects">
+            @for (l of c.lines; track l.key) {
+              <li [class.good]="l.good" [class.bad]="!l.good"><span>{{ l.label }}</span><strong>{{ l.text }}</strong></li>
+            }
+          </ul>
+
+          <footer>
+            <span class="muted">{{ c.member.wage | money }}/sem.</span>
+            <button type="button" class="btn btn-sm" [class.btn-danger]="confirmFire() === c.member.id" (click)="fire(c.member.id)" (blur)="confirmFire.set(null)">
+              {{ confirmFire() === c.member.id ? 'Confirmer (' + (c.member.wage * 8 | money) + ')' : 'Licencier' }}
+            </button>
+          </footer>
+        </article>
+      }
+      @for (v of vacancies(); track v.role) {
+        <article class="member vacant">
+          <header><span class="role">{{ roleLabels[v.role] }}</span></header>
+          <p>{{ v.text }}</p>
+          <button type="button" class="btn btn-sm" (click)="marketFilter.set(v.role)">Voir les candidats</button>
+        </article>
+      }
+    </div>
+    <p class="muted small">Recruteurs : {{ scoutCap() }} au maximum (niveau de la cellule de recrutement). Leurs missions rapportent les <a routerLink="/jeu/boosters">boosters</a>.</p>
+  </section>
+
+  <div class="grid grid-2">
+    <section class="panel lifestyle" aria-labelledby="ls-title">
+      <div class="panel-head">
+        <h2 id="ls-title">Mode de vie de l'entraîneur</h2>
+        <span class="points" [class.has]="(staff.manager()?.perkPoints ?? 0) > 0">{{ staff.manager()?.perkPoints ?? 0 }} point(s)</span>
+      </div>
+      @if (lifestyle() && !changingLifestyle()) {
+        @let ls = lifestyle()!;
+        <p><strong>{{ ls.label }}</strong> — <span class="muted">{{ ls.description }}</span></p>
+        <ol class="tree">
+          @for (p of ls.perks; track p.id) {
+            <li class="perk" [class.owned]="p.owned" [class.next]="p.next">
+              <div>
+                <strong>{{ p.label }}</strong>
+                <p class="muted">{{ p.description }}</p>
+                <ul class="effects inline">
+                  @for (l of p.lines; track l.key) {
+                    <li [class.good]="l.good" [class.bad]="!l.good"><span>{{ l.label }}</span> <strong>{{ l.text }}</strong></li>
+                  }
+                </ul>
+              </div>
+              @if (p.owned) {
+                <span class="tag">Acquis</span>
+              } @else if (p.next) {
+                <button type="button" class="btn btn-sm btn-primary" [disabled]="!(staff.manager()?.perkPoints)" (click)="staff.unlock(p.id)">Débloquer</button>
+              } @else {
+                <span class="muted small">Verrouillé</span>
+              }
+            </li>
+          }
+        </ol>
+        @if (otherPerks().length) {
+          <p class="muted small">Avantages conservés d'un autre mode de vie : {{ otherPerks().join(', ') }}.</p>
+        }
+        <button type="button" class="btn btn-ghost btn-sm" (click)="changingLifestyle.set(true)">Changer de mode de vie</button>
+      } @else {
+        <p class="muted">Choisissez une voie. Chaque niveau d'entraîneur rapporte un point pour débloquer les avantages dans l'ordre ; les avantages acquis sont conservés si vous changez de voie.</p>
+        <div class="lifestyles">
+          @for (l of staff.lifestyles; track l.id) {
+            <button type="button" class="ls-card" [class.current]="staff.manager()?.lifestyle === l.id" (click)="choose(l.id)">
+              <strong>{{ l.label }}</strong>
+              <span class="muted">{{ l.description }}</span>
+              <small>{{ l.perks[0].label }} → {{ l.perks[3].label }}</small>
+            </button>
+          }
+        </div>
+        @if (changingLifestyle()) {
+          <button type="button" class="btn btn-ghost btn-sm" (click)="changingLifestyle.set(false)">Annuler</button>
+        }
+      }
+    </section>
+
+    <section class="panel" aria-labelledby="fx-title">
+      <div class="panel-head"><h2 id="fx-title">Effets en vigueur</h2></div>
+      @if (staff.totals().length) {
+        <ul class="effects totals">
+          @for (l of staff.totals(); track l.key) {
+            <li [class.good]="l.good" [class.bad]="!l.good"><span>{{ l.label }}</span><strong>{{ l.text }}</strong></li>
+          }
+        </ul>
+      } @else {
+        <p class="empty">Aucun effet actif.</p>
+      }
+      @if (staff.modifiers().length) {
+        <h3 class="sub">Modificateurs temporaires</h3>
+        <ul class="mods">
+          @for (m of staff.modifiers(); track m.id) {
+            <li>
+              <span>{{ m.label }} <small class="muted">· {{ m.weeksLeft }} sem.</small></span>
+              <span>
+                @for (l of m.lines; track l.key) {
+                  <span class="pill" [class.good]="l.good" [class.bad]="!l.good">{{ l.label }} {{ l.text }}</span>
+                }
+              </span>
+            </li>
+          }
+        </ul>
+      }
+      <details>
+        <summary>Détail par source</summary>
+        <ul class="sources">
+          @for (src of staff.sources(); track src.label) {
+            <li>
+              <span>{{ src.label }}</span>
+              <span>
+                @for (l of src.lines; track l.key) {
+                  <span class="pill" [class.good]="l.good" [class.bad]="!l.good">{{ l.label }} {{ l.text }}</span>
+                }
+              </span>
+            </li>
+          }
+        </ul>
+      </details>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="market-title">
+    <div class="panel-head">
+      <h2 id="market-title">Candidats</h2>
+      <span class="muted">Votre réputation : {{ staff.manager()?.reputation }} · le marché se renouvelle toutes les 8 semaines</span>
+    </div>
+    <div class="segmented" role="tablist" aria-label="Filtrer par poste">
+      @for (f of roleFilters; track f) {
+        <button type="button" role="tab" [attr.aria-selected]="marketFilter() === f" (click)="marketFilter.set(f)">{{ f === 'all' ? 'Tous' : roleLabels[f] }}</button>
+      }
+    </div>
+    @if (market().length) {
+      <div class="candidates">
+        @for (c of market(); track c.member.id) {
+          <article class="candidate" [class.locked]="!c.reachable" [attr.data-role]="c.member.role">
+            <header>
+              <span class="role">{{ roleLabels[c.member.role] }}</span>
+              <span class="skill">{{ c.member.skill }}<small>/20</small></span>
+            </header>
+            <h3>{{ c.name }} <small class="muted">{{ c.member.nationality | flag }} {{ c.member.age }} ans</small></h3>
+            <ul class="traits">
+              @for (t of c.traits; track t.id) {
+                <li class="trait" tabindex="0">{{ t.label }}<span class="tip" role="tooltip">{{ t.description }}</span></li>
+              }
+            </ul>
+            <ul class="effects">
+              @for (l of c.lines; track l.key) {
+                <li [class.good]="l.good" [class.bad]="!l.good"><span>{{ l.label }}</span><strong>{{ l.text }}</strong></li>
+              }
+            </ul>
+            <footer>
+              <span class="muted">{{ c.member.wage | money }}/sem. · prime {{ c.fee | money }}</span>
+              @if (c.reachable) {
+                <button type="button" class="btn btn-sm btn-primary" (click)="staff.hire(c.member.id)">Engager</button>
+              } @else {
+                <span class="lock">Réputation {{ c.required }} requise</span>
+              }
+            </footer>
+          </article>
+        }
+      </div>
+    } @else {
+      <p class="empty">Aucun candidat pour ce poste en ce moment.</p>
+    }
+  </section>
+</div>

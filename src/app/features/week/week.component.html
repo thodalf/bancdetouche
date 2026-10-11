@@ -1,0 +1,189 @@
+<div class="page">
+  <header class="page-head">
+    <div>
+      <h1>Semaine</h1>
+      <p>Entre deux matchs, tout se prépare : programme d'entraînement, plan contre l'adversaire, entretiens individuels et conférence de presse. Chaque choix pèse sur le prochain match.</p>
+    </div>
+    <div class="bonus" aria-live="polite">
+      <small>Effet sur le prochain match</small>
+      <strong [class.pos]="week.matchEffect().strength >= 0" [class.neg]="week.matchEffect().strength < 0">{{ pct(week.matchEffect().strength) }}</strong>
+      <span class="muted">de force · blessures {{ pct(week.matchEffect().injury - 1) }}</span>
+    </div>
+  </header>
+
+  <!-- ------------------------------------------------ prochain adversaire -->
+  @if (week.report(); as r) {
+    <section class="panel opponent">
+      <app-club-crest [club]="r.club" [size]="56" />
+      <div class="opp-id">
+        <span class="kicker">{{ r.home ? 'À domicile' : 'À l’extérieur' }} · {{ store.currentWeek()?.date | matchDate }}</span>
+        <h2>{{ r.club.name }}</h2>
+        <div class="form" aria-label="Forme récente">
+          @for (x of r.form; track $index) {
+            <span class="res" [attr.data-r]="x">{{ x === 'W' ? 'V' : x === 'D' ? 'N' : 'D' }}</span>
+          } @empty {
+            <span class="muted">Aucun match joué</span>
+          }
+        </div>
+      </div>
+      <dl class="compare">
+        @for (line of [['Attaque', r.strength.attack, r.ours.attack], ['Milieu', r.strength.midfield, r.ours.midfield], ['Défense', r.strength.defense, r.ours.defense], ['Gardien', r.strength.goalkeeping, r.ours.goalkeeping]]; track line[0]) {
+          <div>
+            <dt>{{ line[0] }}</dt>
+            <dd>
+              <span class="them" [class.edge]="+line[1] > +line[2]">{{ +line[1] | number: '1.0-0' }}</span>
+              <span class="vs">/</span>
+              <span class="us" [class.edge]="+line[2] >= +line[1]">{{ +line[2] | number: '1.0-0' }}</span>
+            </dd>
+          </div>
+        }
+      </dl>
+      @if (r.keyPlayer) {
+        <div class="key">
+          <small class="muted">Joueur clé</small>
+          <app-player-link [player]="r.keyPlayer" />
+        </div>
+      }
+    </section>
+  } @else {
+    <section class="panel opponent empty-week">
+      <p class="muted">Pas de match cette semaine : profitez-en pour faire souffler l'effectif ou travailler la technique des jeunes.</p>
+    </section>
+  }
+
+  <div class="grid-week">
+    <!-- ------------------------------------------------ entraînement -->
+    <section class="panel training">
+      <div class="panel-head">
+        <h2>Programme d'entraînement</h2>
+        <div class="segmented small" role="group" aria-label="Programmes types">
+          @for (p of presets; track p.id) {
+            <button type="button" [attr.aria-pressed]="presetActive() === p.id" (click)="week.setProgram(p.sessions)">{{ p.label }}</button>
+          }
+        </div>
+      </div>
+      @if (week.plan(); as plan) {
+        <ol class="days">
+          @for (d of days; track d; let i = $index) {
+            <li class="day" [attr.data-type]="plan.sessions[i]">
+              <span class="day-name">{{ d }}</span>
+              <span class="badge-type">{{ sessionInfo[plan.sessions[i]].short }}</span>
+              <select class="input" [value]="plan.sessions[i]" (change)="selectSession(i, $event)" [attr.aria-label]="'Séance du ' + d">
+                @for (t of sessionTypes; track t.id) {
+                  <option [value]="t.id" [selected]="t.id === plan.sessions[i]">{{ t.label }}</option>
+                }
+              </select>
+              <small class="muted">{{ sessionInfo[plan.sessions[i]].description }}</small>
+            </li>
+          }
+        </ol>
+      }
+      @if (week.training(); as tr) {
+        <div class="totals">
+          <span>Force en match <strong class="pos">{{ pct(tr.strength) }}</strong></span>
+          <span>Risque de blessure <strong [class.pos]="tr.injury < 1">{{ pct(tr.injury - 1) }}</strong></span>
+          <span>Fatigue en fin de semaine <strong [class.neg]="tr.fatigue > 0" [class.pos]="tr.fatigue <= 0">{{ tr.fatigue > 0 ? '+' : '' }}{{ tr.fatigue }}</strong></span>
+        </div>
+      }
+    </section>
+
+    <!-- ------------------------------------------------ préparation -->
+    <section class="panel prep">
+      <div class="panel-head">
+        <h2>Préparation du match</h2>
+        @if (week.plan()?.prep) {
+          <span class="tag-ok">Plan choisi</span>
+        }
+      </div>
+      @if (week.prep().length) {
+        <p class="muted small">Un seul plan par semaine. Plus il répond aux points forts et faibles de l'adversaire, plus il rapporte (de +0,5 % à +3 %). Votre adjoint donne son avis : plus il est compétent, plus il est fiable.</p>
+        <div class="preps">
+          @for (o of week.prep(); track o.id) {
+            <button type="button" class="prep-card" [class.chosen]="week.plan()?.prep === o.id" [attr.aria-pressed]="week.plan()?.prep === o.id" (click)="week.choosePrep(o.id)">
+              <strong>{{ o.label }}</strong>
+              <small>{{ o.description }}</small>
+              <span class="advice">
+                @if (o.advice.stars !== null) {
+                  <span class="stars" [attr.aria-label]="o.advice.stars + ' sur 5'">
+                    @for (n of [1, 2, 3, 4, 5]; track n) {
+                      <span [class.on]="n <= o.advice.stars!">★</span>
+                    }
+                  </span>
+                }
+                <span class="muted">{{ o.advice.note }}</span>
+              </span>
+            </button>
+          }
+        </div>
+      } @else {
+        <p class="empty">Pas d'adversaire à préparer cette semaine.</p>
+      }
+    </section>
+
+    <!-- ------------------------------------------------ entretiens -->
+    <section class="panel talks">
+      <div class="panel-head">
+        <h2>Entretiens individuels</h2>
+        <span class="muted">{{ talks().length }} / {{ week.talkLimit() }} cette semaine</span>
+      </div>
+      @if (talks().length < week.talkLimit()) {
+        <label class="field">
+          <span>Joueur (du moral le plus bas au plus haut)</span>
+          <select class="input" [value]="talkTarget() ?? ''" (change)="talkTarget.set($any($event.target).value || null)">
+            <option value="">Choisir un joueur…</option>
+            @for (x of squad(); track x.p.id) {
+              <option [value]="x.p.id" [disabled]="x.talked">{{ x.p.firstName }} {{ x.p.lastName }} — moral {{ x.p.morale | number: '1.0-0' }}{{ x.traits.length ? ' · ' + x.traits.join(', ') : '' }}{{ x.talked ? ' (déjà vu)' : '' }}</option>
+            }
+          </select>
+        </label>
+        @if (target(); as t) {
+          <p class="target">
+            <app-player-link [player]="t.p" /> · moral {{ t.p.morale | number: '1.0-0' }} · forme {{ t.p.form | number: '1.1-1' }}
+            @for (tr of t.traits; track tr) {
+              <span class="chip-trait">{{ tr }}</span>
+            }
+          </p>
+          <div class="approaches">
+            @for (a of approaches; track a.id) {
+              <button type="button" class="btn approach" (click)="doTalk(a.id)">
+                <strong>{{ a.label }}</strong>
+                <small>{{ a.description }}</small>
+              </button>
+            }
+          </div>
+        }
+      } @else {
+        <p class="muted small">Tous les créneaux de la semaine sont pris. Les modes de vie Mentor et Meneur d'hommes donnent un entretien de plus.</p>
+      }
+      @if (talks().length) {
+        <ul class="talk-log">
+          @for (t of talks(); track t.playerId) {
+            <li>
+              <span><app-player-link [player]="t.player" /> · {{ talkLabels[t.approach].label }}</span>
+              <span class="delta" [class.pos]="t.delta > 0" [class.neg]="t.delta < 0">moral {{ t.delta > 0 ? '+' : '' }}{{ t.delta }}</span>
+              <small class="muted">{{ t.text }}</small>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    <!-- ------------------------------------------------ presse -->
+    <section class="panel press">
+      <div class="panel-head"><h2>Conférence de presse</h2></div>
+      @for (q of week.press(); track q.index) {
+        <div class="question">
+          <p class="q">{{ q.text }}</p>
+          <div class="answers">
+            @for (a of q.answers; track $index) {
+              <button type="button" class="btn answer" [class.chosen]="q.chosen === $index" [disabled]="q.chosen !== null" (click)="week.answer(q.index, $index)">
+                <strong>{{ a.label }}</strong>
+                <small>{{ a.outcome }}</small>
+              </button>
+            }
+          </div>
+        </div>
+      }
+    </section>
+  </div>
+</div>

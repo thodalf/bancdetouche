@@ -1,0 +1,79 @@
+<div class="backdrop" (click)="closed.emit(false)">
+  @if (player(); as p) {
+    <div class="dialog contract" role="dialog" aria-modal="true" aria-labelledby="contract-title" (click)="$event.stopPropagation()">
+      <header>
+        <h2 id="contract-title">
+          {{ context() === 'renewal' ? 'Prolongation' : 'Contrat' }} : {{ p | playerName }}
+        </h2>
+        <p class="muted">
+          {{ p.age }} ans — salaire actuel {{ p.wage | money }}/sem.
+          @if (agreement(); as a) {
+            — indemnité convenue {{ a.fee | money }}
+          }
+        </p>
+      </header>
+
+      @if (demands(); as d) {
+        <div class="agent">
+          <strong>Attentes de l'agent</strong>
+          <span>Environ {{ d.wage | money }}/sem., {{ d.years }} an(s), statut « {{ statusLabels[d.status] }} »</span>
+          @if (d.wantsClause) {
+            <span>Exige une clause libératoire d'au plus {{ d.maxClause | money }}.</span>
+          }
+          <span class="muted small">Une prime à la signature compense un salaire plus bas. Promettre un statut trop élevé coûtera du moral s'il ne joue pas.</span>
+        </div>
+      }
+
+      <div class="form">
+        <label class="field">
+          Salaire hebdomadaire (k€)
+          <input class="input" id="c-wage" type="number" min="0" step="0.5" [value]="wageK()" (input)="wageK.set(num($event))" />
+        </label>
+        <label class="field">
+          Durée (années)
+          <select class="input" id="c-years" [value]="years()" (change)="years.set(+$any($event.target).value)">
+            @for (y of [1, 2, 3, 4, 5]; track y) {
+              <option [value]="y">{{ y }} an{{ y > 1 ? 's' : '' }}</option>
+            }
+          </select>
+        </label>
+        <label class="field">
+          Prime à la signature (k€)
+          <input class="input" id="c-bonus" type="number" min="0" step="50" [value]="bonusK()" (input)="bonusK.set(num($event))" />
+        </label>
+        <label class="field">
+          Statut promis
+          <select class="input" id="c-status" [value]="status()" (change)="status.set($any($event.target).value)">
+            @for (s of statuses; track s.id) {
+              <option [value]="s.id">{{ s.label }}</option>
+            }
+          </select>
+        </label>
+        <div class="field clause">
+          <label class="check"><input type="checkbox" id="c-clause-on" [checked]="withClause()" (change)="withClause.set($any($event.target).checked)" /> Clause libératoire</label>
+          <input class="input" id="c-clause" type="number" min="0" step="0.5" [disabled]="!withClause()" [value]="clauseM()" (input)="clauseM.set(num($event))" aria-label="Montant de la clause en M€" />
+          <span class="muted small">M€ — valeur actuelle {{ value() | money }}</span>
+        </div>
+      </div>
+
+      <p class="muted small">Marge salariale disponible : {{ wageRoom() | money }}/sem. — tentatives restantes : {{ maxRounds() - roundsUsed() }}</p>
+
+      @if (result(); as r) {
+        <div class="reply" [attr.data-outcome]="r.outcome">
+          @if (r.satisfaction !== undefined) {
+            <span class="mood" aria-label="Réaction du joueur"><span [style.width.%]="satisfactionPct()"></span></span>
+          }
+          <p>{{ r.message }}</p>
+          @if (r.counter) {
+            <button type="button" class="btn btn-sm" (click)="applyCounter()">Reprendre sa contre-proposition</button>
+          }
+        </div>
+      }
+
+      <div class="toolbar">
+        <button type="button" class="btn btn-primary" (click)="submit()" [disabled]="roundsUsed() >= maxRounds()">Proposer ce contrat</button>
+        <button type="button" class="btn btn-ghost" (click)="closed.emit(false)">Fermer</button>
+      </div>
+    </div>
+  }
+</div>

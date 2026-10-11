@@ -1,0 +1,301 @@
+<div class="page">
+  <header class="page-head">
+    <div>
+      <h1>Tactique</h1>
+      <p>Glissez un joueur sur un autre pour les échanger, depuis la liste pour le titulariser, ou sur une zone libre pour le repositionner. Un simple clic marche aussi.</p>
+    </div>
+    <button type="button" class="btn" (click)="tactics.autoPick(); selectedSlot.set(null)">Sélection automatique</button>
+  </header>
+
+  @if (store.state()?.liveMatch) {
+    <section class="panel live-note" role="status">
+      <p>
+        Un match est en cours (en pause). Les réglages faits ici s'appliqueront au prochain match ;
+        pour le match en cours, utilisez le panneau « Consignes » de l'écran de match.
+      </p>
+      <a class="btn btn-primary btn-sm" routerLink="/jeu/match">Reprendre le match</a>
+    </section>
+  }
+
+  @if (tactics.tactic(); as t) {
+    <div class="tac-bar panel">
+      <div class="control">
+        <span class="label">Système</span>
+        <div class="segmented" role="group" aria-label="Formation">
+          @for (f of formations; track f) {
+            <button type="button" [attr.aria-pressed]="t.formation === f" (click)="tactics.setFormation(f); selectedSlot.set(null)">{{ f }}</button>
+          }
+        </div>
+      </div>
+      <div class="control grow">
+        <span class="label">Mentalité <strong class="mentality-name">{{ styleLabels[t.style] }}</strong></span>
+        <div class="mentality" role="group" aria-label="Mentalité">
+          @for (s of styles; track s[0]; let i = $index) {
+            <button type="button" [attr.aria-pressed]="t.style === s[0]" [attr.data-level]="i" (click)="tactics.setStyle(s[0])" [attr.aria-label]="s[1]" [title]="s[1]">
+              <span>{{ s[1] }}</span>
+            </button>
+          }
+        </div>
+      </div>
+      <div class="summary-chips">
+        @for (b of strengthBars(); track b.label) {
+          <span class="chip"><small>{{ b.label }}</small>{{ b.value }}</span>
+        }
+      </div>
+    </div>
+
+    <div class="segmented view-tabs" role="tablist" aria-label="Sections de la tactique">
+      @for (v of views; track v.id) {
+        <button type="button" role="tab" [attr.aria-selected]="view() === v.id" (click)="view.set(v.id)">
+          {{ v.label }}
+          @if (v.id === 'scenarios' && activeScenarios()) {
+            <span class="count">{{ activeScenarios() }}</span>
+          }
+          @if (v.id === 'composition' && problems().length) {
+            <span class="count warn">{{ problems().length }}</span>
+          }
+        </button>
+      }
+    </div>
+
+    @switch (view()) {
+    @case ('composition') {
+    <div class="layout">
+      <section class="pitch-wrap" aria-label="Composition sur le terrain">
+        <div class="pitch" #pitch [class.dragging]="drag()?.moved" [style.--kit]="store.userClub()!.colors.primary" [style.--kit-2]="store.userClub()!.colors.secondary">
+          <div class="markings" aria-hidden="true">
+            <span class="halfway"></span>
+            <span class="circle"></span>
+            <span class="box box-top"></span>
+            <span class="box box-bottom"></span>
+            <span class="six six-top"></span>
+            <span class="six six-bottom"></span>
+          </div>
+          @for (s of slots(); track s.index) {
+            <button
+              type="button"
+              class="token"
+              [style.left.%]="s.slot.x"
+              [style.top.%]="s.slot.y"
+              [attr.data-fit]="s.fitLevel"
+              [class.selected]="selectedSlot() === s.index"
+              [class.injured]="s.player?.injuryWeeks"
+              [class.drop-target]="dropSlot() === s.index"
+              [class.drag-source]="drag()?.moved && drag()?.index === s.index"
+              [attr.data-slot]="s.index"
+              (pointerdown)="startDrag($event, 'slot', s.index)"
+              (click)="tokenClick(s.index)"
+              [attr.aria-label]="(s.slot.role | pos) + ' : ' + (s.player ? (s.player | playerName) : 'vide')"
+            >
+              <span class="shirt">
+                {{ s.player ? s.player.rating : '+' }}
+                @if (s.player) {
+                  <span class="nat pos-tag" [attr.data-group]="groupOf[s.player.position]" [title]="'Poste de prédilection : ' + positionNames[s.player.position]">{{ s.player.position | pos }}</span>
+                }
+              </span>
+              @if (s.player) {
+                <span class="token-name link" (click)="openCard($event, s.player)" [title]="'Ouvrir la fiche de ' + s.player.firstName + ' ' + s.player.lastName">{{ surname(s.player) }}</span>
+              } @else {
+                <span class="token-name">Libre</span>
+              }
+              <span class="token-role">{{ s.slot.role | pos }}@if (s.player && isNonEu(s.player)) { · EXT }</span>
+            </button>
+          }
+        </div>
+        <ul class="legend" aria-label="Légende">
+          <li><span class="dot good"></span>Poste naturel</li>
+          <li><span class="dot ok"></span>Poste adapté</li>
+          <li><span class="dot bad"></span>Hors poste</li>
+          <li><span class="pos-tag mini">BU</span>Poste de prédilection · cliquez sur un nom pour ouvrir la fiche</li>
+          @if (t.slots) {
+            <li><button type="button" class="btn btn-sm btn-ghost" (click)="tactics.resetPositions()">Positions du {{ t.formation }}</button></li>
+          }
+        </ul>
+      </section>
+
+      <div class="side">
+        <section class="panel">
+          <div class="panel-head"><h2>Équilibre du onze</h2></div>
+          <div class="bars">
+            @for (b of strengthBars(); track b.label) {
+              <div class="bar-row">
+                <span>{{ b.label }}</span>
+                <span class="bar"><span [style.width.%]="b.value"></span></span>
+                <strong class="num">{{ b.value }}</strong>
+              </div>
+            }
+          </div>
+          @if (problems().length) {
+            <ul class="problems">
+              @for (p of problems(); track p) {
+                <li>{{ p }}</li>
+              }
+            </ul>
+          }
+        </section>
+
+        <section class="panel list-panel">
+          <div class="panel-head">
+            <h2>{{ selectedSlot() === null ? 'Joueurs' : 'Choisir pour ' + (slots()[selectedSlot()!].slot.role | pos) }}</h2>
+            @if (selectedSlot() !== null) {
+              <button type="button" class="btn btn-ghost btn-sm" (click)="tactics.clearSlot(selectedSlot()!); selectedSlot.set(null)">Vider le poste</button>
+            }
+          </div>
+          <ul class="players">
+            @for (b of bench(); track b.player.id) {
+              <li class="player-li">
+                <button
+                  type="button"
+                  class="player-row"
+                  [attr.aria-disabled]="selectedSlot() === null || b.player.injuryWeeks > 0"
+                  [class.in-lineup]="b.inLineup"
+                  [class.injured]="b.player.injuryWeeks > 0"
+                  (pointerdown)="startDrag($event, 'player', b.player)"
+                  (click)="rowClick(b.player)"
+                >
+                  <span class="grip" aria-hidden="true">⋮⋮</span>
+                  <span class="pos-tag" [attr.data-group]="groupOf[b.player.position]">{{ b.player.position | pos }}</span>
+                  <span class="pname"><span class="link" (click)="openCard($event, b.player)" [title]="'Ouvrir la fiche de ' + b.player.firstName + ' ' + b.player.lastName">{{ b.player | playerName: true }}</span>@if (isNonEu(b.player)) { <abbr class="ext" title="Extracommunautaire">EXT</abbr> }</span>
+                  @if (b.player.injuryWeeks > 0) {
+                    <span class="tag tag-bad">Blessé</span>
+                  } @else {
+                    <app-meter [value]="b.player.fatigue" [inverted]="true" label="Fraîcheur" />
+                  }
+                  @if (b.score !== null) {
+                    <span class="fit num" [attr.data-low]="b.fit! < 0.85">{{ b.score }}</span>
+                  } @else {
+                    <app-rating [value]="b.player.rating" />
+                  }
+                </button>
+              </li>
+            }
+          </ul>
+        </section>
+      </div>
+    </div>
+    }
+
+    @case ('consignes') {
+      <div class="instr-layout">
+        <div class="groups">
+          @for (g of groups; track g.id) {
+            <section class="panel group">
+              <div class="panel-head">
+                <div>
+                  <h2>{{ g.label }}</h2>
+                  <p class="muted small">{{ g.description }}</p>
+                </div>
+              </div>
+              @for (row of g.rows; track row.key) {
+                @let value = instructions()[row.key];
+                <div class="instr" [class.changed]="value !== defaults[row.key]">
+                  <span class="instr-label">{{ row.label }}</span>
+                  <div class="segmented small" role="group" [attr.aria-label]="row.label">
+                    @for (o of row.options; track o[0]) {
+                      <button type="button" [attr.aria-pressed]="value === o[0]" (click)="setInstruction(row.key, o[0])">{{ o[1] }}</button>
+                    }
+                  </div>
+                  <small class="hint">{{ hint(row.key, value) }}</small>
+                </div>
+              }
+            </section>
+          }
+        </div>
+
+        <aside class="instr-side">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Profil tactique</h2>
+              <button type="button" class="btn btn-ghost btn-sm" (click)="tactics.resetInstructions()">Réinitialiser</button>
+            </div>
+            <ul class="profile">
+              @for (p of tactics.profile(); track p.id) {
+                <li [title]="p.hint">
+                  <span class="p-label">{{ p.label }}</span>
+                  <span class="p-bar" [attr.data-tone]="p.inverted ? (p.value > 60 ? 'warn' : 'ok') : (p.value >= 50 ? 'up' : 'down')">
+                    <span class="p-mid"></span>
+                    <span class="p-fill" [style.left.%]="p.value >= 50 ? 50 : p.value" [style.width.%]="p.value >= 50 ? p.value - 50 : 50 - p.value"></span>
+                  </span>
+                  <strong class="num">{{ p.value }}</strong>
+                </li>
+              }
+            </ul>
+            <p class="muted small">50 = neutre. Certaines consignes dépendent de l’adversaire : le couloir d’attaque, le marquage, la relance courte et le piège du hors-jeu sont plus ou moins efficaces selon ses propres choix.</p>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Plans prêts à l’emploi</h2></div>
+            <div class="plans">
+              @for (p of plans; track p.id) {
+                <button type="button" class="plan" [class.current]="currentPlan() === p.id" (click)="tactics.applyPlan(p.id)">
+                  <strong>{{ p.label }}</strong>
+                  <small>{{ p.description }}</small>
+                  <span class="plan-style">{{ styleLabels[p.style] }}</span>
+                </button>
+              }
+            </div>
+          </section>
+        </aside>
+      </div>
+    }
+
+    @case ('scenarios') {
+      <section class="panel scenarios">
+        <div class="panel-head">
+          <div>
+            <h2>Consignes de scénario</h2>
+            <p class="muted small">Préparez vos réactions avant le coup d’envoi : quand la situation se présente en match, le plan choisi est appliqué automatiquement (une seule fois par scénario). Vous gardez la main en direct depuis le banc de touche.</p>
+          </div>
+        </div>
+        <ol class="rules">
+          @for (r of scenarioRows(); track r.id; let i = $index) {
+            <li class="rule" [class.active]="!!r.rule">
+              <span class="priority" title="Priorité">{{ i + 1 }}</span>
+              <div class="rule-what">
+                <strong>{{ r.label }}</strong>
+                <small class="muted">{{ r.description }}</small>
+              </div>
+              <label class="field">
+                <span>Plan de jeu</span>
+                <select class="input" [value]="r.rule?.plan ?? ''" (change)="setScenarioPlan(r.id, $any($event.target).value, r.rule?.from ?? r.defaultFrom)" [attr.aria-label]="'Plan si ' + r.label.toLowerCase()">
+                  <option value="" [selected]="!r.rule">Aucun changement</option>
+                  @for (p of plans; track p.id) {
+                    <option [value]="p.id" [selected]="r.rule?.plan === p.id">{{ p.label }}</option>
+                  }
+                </select>
+              </label>
+              <label class="field">
+                <span>À partir de</span>
+                <select class="input" [disabled]="!r.rule" [value]="'' + (r.rule?.from ?? r.defaultFrom)" (change)="setScenarioPlan(r.id, r.rule!.plan, +$any($event.target).value)" [attr.aria-label]="'Minute pour ' + r.label.toLowerCase()">
+                  @for (m of minutes; track m) {
+                    <option [value]="'' + m" [selected]="(r.rule?.from ?? r.defaultFrom) === m">{{ m === 0 ? 'Coup d’envoi' : m + 'e minute' }}</option>
+                  }
+                </select>
+              </label>
+              <p class="rule-effect">
+                @if (r.planDef; as p) {
+                  {{ styleLabels[p.style] }} · {{ p.description }}
+                } @else {
+                  <span class="muted">Le plan en cours est conservé.</span>
+                }
+              </p>
+            </li>
+          }
+        </ol>
+        <div class="presets">
+          <span class="muted small">Modèles :</span>
+          <button type="button" class="btn btn-sm" (click)="presetScenarios('prudent')">Prudent</button>
+          <button type="button" class="btn btn-sm" (click)="presetScenarios('ambitious')">Ambitieux</button>
+          <button type="button" class="btn btn-sm btn-ghost" (click)="presetScenarios('none')">Tout effacer</button>
+        </div>
+      </section>
+    }
+    }
+  }
+</div>
+
+@if (drag(); as d) {
+  @if (d.moved) {
+    <div class="drag-ghost" [style.left.px]="d.x" [style.top.px]="d.y" aria-hidden="true">{{ d.label }}</div>
+  }
+}

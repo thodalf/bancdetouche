@@ -1,0 +1,109 @@
+<div class="page">
+  <header class="page-head">
+    <div>
+      <h1>Finances</h1>
+      <p>Les salaires sont versés chaque semaine. Les recettes viennent de la billetterie (matchs à domicile), des droits TV, des sponsors et des primes.</p>
+    </div>
+  </header>
+
+  <section class="cards">
+    <div class="panel card">
+      <small class="muted">Trésorerie</small>
+      <span class="stat-big" [class.pos-loss]="club().balance < 0">{{ club().balance | money }}</span>
+    </div>
+    <div class="panel card">
+      <small class="muted">Budget transferts</small>
+      <span class="stat-big">{{ club().transferBudget | money }}</span>
+    </div>
+    <div class="panel card">
+      <small class="muted">Masse salariale hebdomadaire</small>
+      <span class="stat-big">{{ store.userWageBill() | money }}</span>
+      <span class="usage"><app-meter [value]="100 - wageUsage()" label="Marge salariale" /> {{ wageUsage().toFixed(0) }} % de {{ club().wageBudget | money }}</span>
+    </div>
+    <div class="panel card">
+      <small class="muted">Bilan de la saison</small>
+      <span class="stat-big" [class.pos-win]="breakdown().net > 0" [class.pos-loss]="breakdown().net < 0">{{ breakdown().net | money: true }}</span>
+    </div>
+  </section>
+
+  <div class="grid grid-2">
+    <section class="panel">
+      <div class="panel-head"><h2>Recettes et dépenses de la saison</h2></div>
+      @if (breakdown().income.length || breakdown().expenses.length) {
+        <div class="breakdown">
+          @for (r of breakdown().income; track r.label) {
+            <div class="b-row">
+              <span>{{ r.label }}</span>
+              <span class="b-bar income"><span [style.width.%]="r.pct"></span></span>
+              <span class="num pos-win">{{ r.amount | money: true }}</span>
+            </div>
+          }
+          @for (r of breakdown().expenses; track r.label) {
+            <div class="b-row">
+              <span>{{ r.label }}</span>
+              <span class="b-bar expense"><span [style.width.%]="r.pct"></span></span>
+              <span class="num pos-loss">{{ r.amount | money }}</span>
+            </div>
+          }
+        </div>
+      } @else {
+        <p class="empty">Les premiers mouvements apparaîtront après la première semaine.</p>
+      }
+
+      @if (weekly().length) {
+        <h3 class="sub">Solde net par semaine</h3>
+        <div class="weekly" role="img" aria-label="Solde net de chaque semaine de la saison">
+          @for (w of weekly(); track w.week) {
+            <span class="w-col" [title]="weekLabel(w.week) + ' : ' + (w.net | money: true)">
+              <span class="w-bar" [class.neg]="w.net < 0" [style.height.%]="w.h"></span>
+            </span>
+          }
+        </div>
+      }
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Plus gros salaires</h2></div>
+      <table class="data">
+        <thead>
+          <tr><th>Joueur</th><th class="num">Salaire/sem.</th><th class="num">Contrat</th></tr>
+        </thead>
+        <tbody>
+          @for (p of topEarners(); track p.id) {
+            <tr>
+              <td><app-player-link [player]="p" /></td>
+              <td class="num">{{ p.wage | money }}</td>
+              <td class="num">{{ p.contractYears }} an(s)</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Derniers mouvements</h2></div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>Saison</th><th>Semaine</th><th>Libellé</th><th class="num">Montant</th></tr>
+        </thead>
+        <tbody>
+          @for (e of recent(); track $index) {
+            <tr>
+              <td class="muted">{{ e.season }}</td>
+              <td class="muted">{{ e.week + 1 }}</td>
+              <td>{{ e.label }}</td>
+              <td class="num" [class.pos-win]="e.amount > 0" [class.pos-loss]="e.amount < 0">{{ e.amount | money: true }}</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="4" class="empty">Aucun mouvement pour l'instant.</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    @if (ledgerSize() > ledgerLimit()) {
+      <button type="button" class="btn btn-ghost btn-sm" (click)="ledgerLimit.set(ledgerLimit() + 50)">Afficher plus</button>
+    }
+  </section>
+</div>

@@ -1,0 +1,13 @@
+# Déploiement Netlify : build Angular, site statique.
+[build]
+  command = "npm ci && npm run build"
+  publish = "dist/foot-manager/browser"
+
+[build.environment]
+  NODE_VERSION = "24"
+
+# L'application utilise le routage par fragment (#/), mais on renvoie toute URL vers index.html par sécurité.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

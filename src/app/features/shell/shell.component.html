@@ -1,0 +1,139 @@
+@if (store.userClub(); as club) {
+  <div class="shell" [style.--club]="club.colors.primary">
+    <header class="topbar">
+      <a class="identity" routerLink="/jeu">
+        <app-club-crest [club]="club" [size]="34" />
+        <span>
+          <strong>{{ club.name }}</strong>
+          <small class="muted">{{ store.state()?.managerName }}</small>
+        </span>
+      </a>
+
+      <div class="status">
+        <span class="when">
+          <strong>{{ store.currentWeek()?.date | matchDate }}</strong>
+          <small class="muted">{{ weekInfo() }}</small>
+        </span>
+        <span class="chip" title="Classement en championnat"><small>Classement</small><span>{{ store.userPosition() }}<sup>e</sup></span></span>
+        <span class="chip" title="Trésorerie"><small>Trésorerie</small>{{ club.balance | money }}</span>
+        <span class="chip" title="Moral de l'équipe"><small>Moral</small>{{ club.morale }}</span>
+      </div>
+
+      <button type="button" class="btn btn-primary btn-lg advance" (click)="game.advance()" aria-keyshortcuts="Space">
+        {{ advanceLabel() }} <kbd>Espace</kbd>
+      </button>
+    </header>
+
+    <nav class="sidebar" aria-label="Navigation principale">
+      @for (item of nav; track item.path) {
+        <a [routerLink]="item.path" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: !!item.exact }" class="nav-link">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path [attr.d]="item.icon" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span>{{ item.label }}</span>
+          @if (item.path === '/jeu/transferts' && store.pendingOffers().length) {
+            <span class="badge">{{ store.pendingOffers().length }}</span>
+          }
+          @if (item.path === '/jeu/boosters' && boosters.items().length) {
+            <span class="badge">{{ boosters.items().length }}</span>
+          }
+          @if (item.path === '/jeu/semaine' && week.todo()) {
+            <span class="badge" title="Tâches de la semaine à faire">{{ week.todo() }}</span>
+          }
+          @if (item.path === '/jeu/staff' && boosters.perkPoints()) {
+            <span class="badge" title="Points d'avantage à dépenser">{{ boosters.perkPoints() }}</span>
+          }
+          @if (item.path === '/jeu/club' && store.pendingJobOffers().length) {
+            <span class="badge">{{ store.pendingJobOffers().length }}</span>
+          }
+          @if (item.path === '/jeu' && store.unreadNews()) {
+            <span class="badge">{{ store.unreadNews() }}</span>
+          }
+        </a>
+      }
+
+      <div class="sidebar-foot">
+        <label class="autosave">
+          <input type="checkbox" [checked]="game.autosave()" (change)="game.autosave.set($any($event.target).checked)" />
+          Sauvegarde auto
+        </label>
+        <button type="button" class="btn btn-sm" (click)="game.saveNow()">Sauvegarder</button>
+        <button type="button" class="btn btn-sm btn-ghost" (click)="game.exportSave()">Exporter (.json)</button>
+        <button type="button" class="btn btn-sm btn-ghost" (click)="game.quit()">Quitter vers l'accueil</button>
+      </div>
+    </nav>
+
+    <main class="content">
+      <router-outlet />
+    </main>
+  </div>
+
+  @if (staff.pendingEvent(); as ev) {
+    <div class="backdrop event" role="dialog" aria-modal="true" aria-labelledby="event-title">
+      <div class="dialog event-dialog">
+        <span class="event-kicker" [class.urgent]="ev.urgent">{{ ev.urgent ? 'Crise' : ev.followUp ? 'Suite' : 'Événement' }}</span>
+        <h2 id="event-title">{{ ev.title }}</h2>
+        @if (ev.staff || ev.staff2 || ev.player || ev.player2 || ev.club) {
+          <div class="event-cast">
+            @for (m of [ev.staff, ev.staff2]; track $index) {
+              @if (m) {
+                <span class="event-who">
+                  <span class="portrait" aria-hidden="true">{{ m.firstName[0] }}{{ m.lastName[0] }}</span>
+                  <span>{{ m.firstName }} {{ m.lastName }}<small class="muted">Opinion {{ m.opinion.toFixed(0) }}</small></span>
+                </span>
+              }
+            }
+            @for (p of [ev.player, ev.player2]; track $index) {
+              @if (p) {
+                <span class="event-who">
+                  <span class="portrait player" aria-hidden="true">{{ p.position | pos }}</span>
+                  <span><app-player-link [player]="p" /><small class="muted">Moral {{ p.morale.toFixed(0) }}</small></span>
+                </span>
+              }
+            }
+            @if (ev.club; as c) {
+              <span class="event-who">
+                <app-club-crest [club]="c" [size]="34" />
+                <span>{{ c.name }}<small class="muted">Réputation {{ c.reputation }}</small></span>
+              </span>
+            }
+          </div>
+        }
+        <p class="event-text">{{ ev.text }}</p>
+        <div class="event-options">
+          @for (o of ev.options; track $index) {
+            <button type="button" class="btn event-option" [class.special]="!!o.requirement" [disabled]="!o.available" (click)="staff.resolve(ev.id, $index)">
+              <strong>
+                @if (o.requirement) {
+                  <span class="req" [title]="o.available ? 'Option débloquée' : 'Option réservée'">{{ o.requirement }}</span>
+                }
+                {{ o.label }}
+              </strong>
+              <small>{{ o.outcome }}</small>
+            </button>
+          }
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (store.unemployed()) {
+    <div class="backdrop sacked" role="alertdialog" aria-labelledby="sacked-title">
+      <div class="dialog">
+        <h2 id="sacked-title">Vous avez été limogé</h2>
+        <p>
+          La direction de {{ club.name }} a perdu confiance. Votre réputation d'entraîneur est désormais de {{ store.state()?.manager?.reputation }}.
+          Choisissez votre prochain club pour poursuivre votre carrière.
+        </p>
+        @for (j of rescueOffers(); track j.offer.id) {
+          <button type="button" class="btn job-btn" (click)="clubService.acceptJob(j.offer.id)">
+            <app-club-crest [club]="j.club" [size]="28" />
+            <span>{{ j.club.name }} <small class="muted">réputation {{ j.club.reputation }}</small></span>
+          </button>
+        }
+        <button type="button" class="btn btn-ghost" (click)="game.quit()">Quitter vers l'accueil</button>
+      </div>
+    </div>
+  }
+  <app-player-card />
+}

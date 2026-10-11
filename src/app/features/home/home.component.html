@@ -1,0 +1,44 @@
+<main class="home">
+  <svg class="pitch" viewBox="0 0 680 1050" aria-hidden="true">
+    <g fill="none" stroke="currentColor" stroke-width="3">
+      <rect x="20" y="20" width="640" height="1010" />
+      <line x1="20" y1="525" x2="660" y2="525" />
+      <circle cx="340" cy="525" r="92" />
+      <circle cx="340" cy="525" r="4" fill="currentColor" />
+      <rect x="138" y="20" width="404" height="166" />
+      <rect x="248" y="20" width="184" height="56" />
+      <path d="M266 186 A92 92 0 0 0 414 186" />
+      <rect x="138" y="864" width="404" height="166" />
+      <rect x="248" y="974" width="184" height="56" />
+      <path d="M266 864 A92 92 0 0 1 414 864" />
+    </g>
+  </svg>
+
+  <section class="hero">
+    <h1 class="title">Banc<br />de touche</h1>
+    <p class="lede">Prenez les commandes d'un club de la Division Élite : recrutez, composez votre onze, vivez chaque match minute par minute et visez le titre.</p>
+
+    <div class="actions">
+      @if (saves.summary(); as save) {
+        <button type="button" class="btn btn-primary btn-lg" (click)="continue()">Reprendre la partie</button>
+        <div class="save-card">
+          <strong>{{ save.clubName }}</strong>
+          <span class="muted">
+            {{ save.managerName }} — saison {{ save.season }}-{{ save.season + 1 }}, semaine {{ save.week }}/{{ save.totalWeeks }}
+          </span>
+          <span class="muted small">Sauvegardée le {{ save.savedAt | date: 'd MMM y, HH:mm' }}</span>
+          <button type="button" class="btn btn-ghost btn-sm" (click)="deleteSave()">
+            {{ confirmDelete() ? 'Confirmer la suppression définitive' : 'Supprimer la sauvegarde' }}
+          </button>
+        </div>
+        <a class="btn btn-lg" routerLink="/nouvelle-partie">Nouvelle partie</a>
+      } @else {
+        <a class="btn btn-primary btn-lg" routerLink="/nouvelle-partie">Nouvelle partie</a>
+      }
+      <label class="btn btn-ghost import">
+        Importer une sauvegarde (.json)
+        <input type="file" accept="application/json,.json" (change)="onImport($event)" />
+      </label>
+    </div>
+  </section>
+</main>

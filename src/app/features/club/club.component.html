@@ -1,0 +1,265 @@
+<div class="page">
+  <header class="page-head">
+    <div class="club-title">
+      <app-club-crest [club]="userClub()" [size]="44" />
+      <div>
+        <h1>{{ userClub().name }}</h1>
+        <p>{{ userClub().stadium }} — {{ userClub().capacity.toLocaleString('fr-FR') }} places — réputation {{ userClub().reputation }}</p>
+      </div>
+    </div>
+  </header>
+
+  <div class="segmented" role="tablist">
+    @for (t of tabs; track t.id) {
+      <button type="button" role="tab" [attr.aria-selected]="tab() === t.id" (click)="tab.set(t.id)">
+        {{ t.label }}
+        @if (t.id === 'carriere' && jobOffers().length) {
+          ({{ jobOffers().length }})
+        }
+      </button>
+    }
+  </div>
+
+  @switch (tab()) {
+    @case ('identite') {
+      <section class="panel identity">
+        <div class="panel-head"><h2>Identité du club</h2></div>
+        <form class="identity-form" (submit)="saveIdentity($event)">
+          <div class="identity-fields">
+            <label class="field">
+              <span>Nom du club</span>
+              <input class="input" name="clubName" maxlength="32" required [value]="identity().name" (input)="editIdentity('name', $event)" />
+            </label>
+            <label class="field">
+              <span>Sigle (2 à 4 caractères)</span>
+              <input class="input short" name="shortName" maxlength="4" required [value]="identity().shortName" (input)="editIdentity('shortName', $event)" />
+            </label>
+            <label class="field">
+              <span>Stade</span>
+              <input class="input" name="stadium" maxlength="40" required [value]="identity().stadium" (input)="editIdentity('stadium', $event)" />
+            </label>
+            <div class="colors">
+              <label class="field color">
+                <span>Couleur principale</span>
+                <input type="color" name="primary" [value]="identity().primary" (input)="editIdentity('primary', $event)" />
+              </label>
+              <label class="field color">
+                <span>Couleur secondaire</span>
+                <input type="color" name="secondary" [value]="identity().secondary" (input)="editIdentity('secondary', $event)" />
+              </label>
+            </div>
+            <div class="actions">
+              <button type="submit" class="btn btn-primary" [disabled]="!identityDirty()">Enregistrer</button>
+              <button type="button" class="btn btn-ghost" [disabled]="!identityDirty()" (click)="identity.set({ name: userClub().name, shortName: userClub().shortName, stadium: userClub().stadium, primary: userClub().colors.primary, secondary: userClub().colors.secondary })">Annuler</button>
+            </div>
+          </div>
+          <div class="identity-preview" aria-label="Aperçu" [style.--p]="identity().primary" [style.--s]="identity().secondary">
+            <app-club-crest [club]="identityPreview()" [size]="96" />
+            <strong>{{ identityPreview().name }}</strong>
+            <span class="muted">{{ identity().stadium }}</span>
+            <span class="kit" aria-hidden="true"></span>
+          </div>
+        </form>
+        <p class="muted small">Le changement est immédiat : calendrier, classement et historique suivent le club. Une annonce paraît dans la messagerie.</p>
+      </section>
+    }
+    @case ('infrastructures') {
+      <p class="muted intro">
+        Les travaux sont payés sur la trésorerie ({{ userClub().balance | money }}) et un seul chantier peut être mené à la fois.
+        Entretien actuel : {{ club.upkeep() | money }} par semaine.
+      </p>
+      <div class="facilities">
+        @for (f of club.facilities(); track f.kind) {
+          <section class="panel facility">
+            <div class="panel-head">
+              <h2>{{ f.label }}</h2>
+              <span class="pips" [attr.aria-label]="'Niveau ' + f.level + ' sur 5'">
+                @for (l of levels; track l) {
+                  <span [class.on]="l <= f.level" [class.building]="f.building && l === f.building.targetLevel"></span>
+                }
+              </span>
+            </div>
+            <p>{{ f.effect }}</p>
+            @if (f.building; as b) {
+              <p class="building-note">Travaux vers le niveau {{ b.targetLevel }} : livraison dans {{ b.weeksLeft }} semaine(s).</p>
+            } @else if (f.next; as n) {
+              <button type="button" class="btn" [disabled]="!!userClub().construction || userClub().balance < n.cost" (click)="upgrade(f.kind)">
+                Passer au niveau {{ f.level + 1 }} — {{ n.cost | money }}, {{ n.weeks }} sem.
+              </button>
+            } @else {
+              <p class="muted">Niveau maximal atteint.</p>
+            }
+          </section>
+        }
+      </div>
+    }
+
+    @case ('entrainement') {
+      <section class="panel">
+        <div class="panel-head"><h2>Intensité de l'entraînement</h2></div>
+        <div class="segmented" role="group" aria-label="Intensité">
+          @for (i of intensities; track i[0]) {
+            <button type="button" [attr.aria-pressed]="userClub().trainingIntensity === i[0]" (click)="club.setTraining(i[0])">{{ i[1] }}</button>
+          }
+        </div>
+        <p class="effect">{{ club.trainingEffects[userClub().trainingIntensity].description }}</p>
+        <dl class="kv narrow">
+          <dt>Vitesse de récupération</dt>
+          <dd>× {{ club.trainingEffects[userClub().trainingIntensity].recovery }}</dd>
+          <dt>Risque de blessure</dt>
+          <dd>× {{ club.trainingEffects[userClub().trainingIntensity].injury }}</dd>
+          <dt>Progression des moins de 24 ans</dt>
+          <dd>× {{ club.trainingEffects[userClub().trainingIntensity].growth }}</dd>
+          <dt>Centre d'entraînement</dt>
+          <dd>Niveau {{ userClub().facilities.training }}</dd>
+        </dl>
+        <p class="muted">
+          La fatigue monte de 20 à 30 points par match joué et redescend chaque semaine. Au-delà de 50, le rendement baisse
+          et le risque de blessure grimpe : faites tourner l'effectif, surtout les semaines de coupe.
+        </p>
+      </section>
+    }
+
+    @case ('formation') {
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Centre de formation — niveau {{ userClub().facilities.academy }}</h2>
+          @if (club.youthInfo(); as y) {
+            <span class="muted">
+              Promotion annuelle : {{ y.size.min }} à {{ y.size.max }} jeunes
+              @if (!y.intakeDone && y.intakeDate) { le {{ y.intakeDate | matchDate: false }} }
+            </span>
+          }
+        </div>
+        <p class="muted intro">
+          Les jeunes progressent chaque mois selon le niveau du centre. Le potentiel affiché est l’avis de vos recruteurs : plus la cellule de recrutement est développée, plus il est fiable. Promus en équipe première, ils comptent comme joueurs formés au club
+          (quota de 4 minimum). À 19 ans, ils passent automatiquement professionnels.
+        </p>
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Poste</th><th>Joueur</th><th class="num">Âge</th><th class="num">Note</th><th class="num">Potentiel</th><th class="num">Salaire/sem.</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (p of youth(); track p.id) {
+                <tr>
+                  <td><span class="pos-tag" [attr.data-group]="groupOf[p.position]">{{ p.position | pos }}</span></td>
+                  <td>{{ p.nationality | flag }} <app-player-link [player]="p" /></td>
+                  <td class="num">{{ p.age }}</td>
+                  <td class="num"><app-rating [value]="p.rating" /></td>
+                  <td class="num"><app-potential [player]="p" [detailed]="true" /></td>
+                  <td class="num">{{ p.wage | money }}</td>
+                  <td class="actions">
+                    <button type="button" class="btn btn-sm btn-primary" (click)="club.promote(p.id)">Promouvoir</button>
+                    <button type="button" class="btn btn-sm btn-ghost" (click)="club.releaseYouth(p.id)">Libérer</button>
+                  </td>
+                </tr>
+              } @empty {
+                <tr><td colspan="7" class="empty">Le centre est vide. La prochaine promotion arrive en cours de saison.</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    }
+
+    @case ('direction') {
+      <div class="grid grid-2">
+        <section class="panel">
+          <div class="panel-head"><h2>Confiance de la direction</h2></div>
+          <div class="confidence">
+            <span class="stat-big" [class.pos-loss]="state().board.confidence < 30">{{ state().board.confidence }}</span>
+            <span class="gauge"><span [style.width.%]="state().board.confidence"></span><i [style.left.%]="club.sackThreshold"></i></span>
+          </div>
+          <p class="muted">Sous {{ club.sackThreshold }}, vous êtes limogé. Perdre contre un adversaire plus modeste coûte davantage de confiance.</p>
+          @if (reviews().length) {
+            <h3 class="sub">Derniers points d'étape</h3>
+            <ul class="reviews">
+              @for (r of reviews(); track $index) {
+                <li><span class="muted">{{ r.season }}, sem. {{ r.week + 1 }} — {{ r.confidence }}/100</span> {{ r.text }}</li>
+              }
+            </ul>
+          }
+        </section>
+        <section class="panel">
+          <div class="panel-head"><h2>Objectifs de la saison</h2></div>
+          <ul class="objectives">
+            @for (o of club.objectives(); track o.objective.kind) {
+              <li [attr.data-status]="o.status">
+                <span class="obj-label">{{ o.objective.label }}</span>
+                <span class="muted small">{{ importanceLabels[o.objective.importance] }} — {{ o.detail }}</span>
+                <span class="tag obj-status">{{ statusLabels[o.status] }}</span>
+              </li>
+            }
+          </ul>
+        </section>
+      </div>
+    }
+
+    @case ('carriere') {
+      <div class="grid grid-2">
+        <section class="panel">
+          <div class="panel-head"><h2>{{ state().manager.name }}</h2></div>
+          <div class="confidence">
+            <span class="stat-big">{{ state().manager.reputation }}</span>
+            <span class="gauge rep"><span [style.width.%]="state().manager.reputation"></span></span>
+          </div>
+          <p class="muted">
+            Réputation d'entraîneur : elle grimpe quand vous dépassez les attentes et gagnez des trophées. Les clubs dont la réputation
+            est proche de la vôtre vous approcheront en fin de saison, parfois en cours de saison.
+          </p>
+          @if (state().manager.trophies.length) {
+            <h3 class="sub">Palmarès</h3>
+            <ul class="plain">
+              @for (t of state().manager.trophies; track $index) {
+                <li>{{ t.season }}-{{ t.season + 1 }} : {{ t.title }}</li>
+              }
+            </ul>
+          }
+          <h3 class="sub">Parcours</h3>
+          <ul class="plain">
+            @for (c of career(); track $index) {
+              <li class="club-cell">
+                <app-club-crest [club]="c.club" [size]="18" />
+                <span>
+                  {{ c.club.name }} — depuis {{ c.fromSeason }}
+                  @if (c.toSeason !== undefined) {
+                    jusqu'en {{ c.toSeason }} ({{ c.exit === 'sacked' ? 'limogé' : 'départ' }})
+                  }
+                </span>
+              </li>
+            }
+          </ul>
+        </section>
+        <section class="panel">
+          <div class="panel-head"><h2>Offres d'emploi</h2></div>
+          @for (j of jobOffers(); track j.offer.id) {
+            <div class="job">
+              <app-club-crest [club]="j.club" [size]="32" />
+              <div>
+                <strong>{{ j.club.name }}</strong>
+                <span class="muted">Réputation {{ j.club.reputation }}, budget transferts {{ j.club.transferBudget | money }}</span>
+              </div>
+              <div class="job-actions">
+                <button type="button" class="btn btn-primary btn-sm" (click)="club.acceptJob(j.offer.id)">Accepter</button>
+                <button type="button" class="btn btn-ghost btn-sm" (click)="club.declineJob(j.offer.id)">Décliner</button>
+              </div>
+            </div>
+          } @empty {
+            <p class="empty">Aucune offre pour le moment.</p>
+          }
+          @if (seasons().length) {
+            <h3 class="sub">Saisons passées</h3>
+            <ul class="plain">
+              @for (h of seasons(); track h.season) {
+                <li>{{ h.season }}-{{ h.season + 1 }} : {{ h.club?.name }}, {{ h.userPosition }}e (champion : {{ h.champion?.name }})</li>
+              }
+            </ul>
+          }
+        </section>
+      </div>
+    }
+  }
+</div>

@@ -1,0 +1,76 @@
+.home {
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  align-items: center;
+  padding: 48px clamp(16px, 6vw, 96px);
+  overflow: hidden;
+}
+
+.pitch {
+  position: absolute;
+  right: -6vw;
+  top: 50%;
+  height: 130vh;
+  transform: translateY(-50%) rotate(-8deg);
+  color: rgba(238, 244, 239, 0.09);
+  pointer-events: none;
+}
+
+.hero {
+  position: relative;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.title {
+  font-size: clamp(4rem, 13vw, 8.5rem);
+  line-height: 0.86;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  color: var(--chalk);
+  /* Trait de craie sous le titre, comme la ligne de touche. */
+  padding-bottom: 18px;
+  border-bottom: 4px solid var(--chalk);
+  width: fit-content;
+}
+
+.lede {
+  font-size: 1.1rem;
+  color: var(--chalk-2);
+  max-width: 46ch;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.save-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--amber);
+  background: rgba(14, 52, 40, 0.8);
+}
+
+.small {
+  font-size: 0.8rem;
+}
+
+.import input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.import:focus-within {
+  outline: 2px solid var(--amber);
+}
