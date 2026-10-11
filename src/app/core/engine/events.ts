@@ -172,6 +172,29 @@ const leaveClub = (s: GameState, p: Player) => {
 const youthFee = (p?: Player) => (p ? roundMoney(Math.max(1_500_000, marketValue(p) * 2.2 + (p.potential - 70) * 250_000)) : 0);
 const millions = (n: number) => `${(n / 1e6).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} M€`;
 
+// ------------------------------------------------------------------ aides de la 6e vague
+const userClub = (s: GameState) => clubById(s, s.userClubId);
+/** Choix stable mais variable d'une semaine à l'autre dans une liste. */
+const rotate = <T>(s: GameState, list: T[]): T | undefined => (list.length ? list[(s.currentWeek * 7 + s.season) % list.length] : undefined);
+const fatigue = (p: Player | undefined, d: number) => p && (p.fatigue = clamp(p.fatigue + d, 0, 100));
+const squadFatigue = (s: GameState, d: number) => userSquad(s).forEach((p) => fatigue(p, d));
+const form = (p: Player | undefined, d: number) => p && (p.form = clamp(p.form + d, 0, 10));
+const staffOf = (s: GameState, role: StaffRole) => s.staff.find((m) => m.role === role);
+/** Fatigue moyenne de l'effectif professionnel. */
+const avgFatigue = (s: GameState) => {
+  const squad = userSquad(s);
+  return squad.length ? squad.reduce((t, p) => t + p.fatigue, 0) / squad.length : 0;
+};
+/** Le prochain match se joue-t-il à l'extérieur ? */
+const nextIsAway = (s: GameState) => nextFixture(s)?.awayId === s.userClubId;
+/** Absence courte (congé, repos) : le joueur est indisponible quelques semaines. */
+const sideline = (p: Player | undefined, weeks: number, reason: string) => {
+  if (!p) return;
+  if (p.injuryWeeks === 0) p.injury = reason;
+  p.injuryWeeks = Math.max(p.injuryWeeks, weeks);
+};
+const tooPoor = 'La trésorerie ne le permet pas.';
+
 /** Catalogue d'événements à choix. */
 export const EVENTS: EventDef[] = [
   {
@@ -4040,6 +4063,2398 @@ export const EVENTS: EventDef[] = [
         label: 'L’effectif est complet',
         outcome: 'Aucun effet.',
         apply: () => 'Vous éteignez votre téléphone.',
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------- 6e vague : vies de joueurs
+  {
+    id: 'wedding',
+    title: 'Le mariage de l’année',
+    pickPlayer: (s) => rotate(s, userSquad(s).filter((p) => p.age >= 24 && p.age <= 33)),
+    condition: (s) => userSquad(s).some((p) => p.age >= 24 && p.age <= 33),
+    text: (c) => `${pname(c)} se marie… le samedi du prochain match. Il pose le faire-part sur votre bureau avec un regard plein d'espoir.`,
+    options: [
+      {
+        label: 'Lui accorder son samedi',
+        outcome: 'Indisponible 1 semaine, moral du joueur +15, moral de l’équipe +2.',
+        apply: (s, c) => {
+          sideline(c.player, 1, 'Congé de mariage');
+          morale(c.player, 15);
+          teamMorale(s, 2);
+          return 'Il vous promet une part de la pièce montée.';
+        },
+      },
+      {
+        label: 'Toute l’équipe au dîner, après le match',
+        outcome: 'Moral du joueur +8, moral de l’équipe +5, fatigue +6 pour l’effectif.',
+        apply: (s, c) => {
+          morale(c.player, 8);
+          teamMorale(s, 5);
+          squadFatigue(s, 6);
+          return 'Le car du club dépose tout le monde à la salle des fêtes à minuit.';
+        },
+      },
+      {
+        label: 'Être son témoin',
+        outcome: 'Indisponible 1 semaine, moral du joueur +20, moral de l’équipe +4. Il devient « Fidèle ».',
+        requires: lifestyle('mentor', 'Mentor'),
+        apply: (s, c) => {
+          sideline(c.player, 1, 'Congé de mariage');
+          morale(c.player, 20);
+          teamMorale(s, 4);
+          setTraits(c.player, ['loyal']);
+          return 'Votre discours fait pleurer la belle-famille.';
+        },
+      },
+      {
+        label: 'Le match passe avant tout',
+        outcome: 'Moral du joueur −12, confiance de la direction +1.',
+        apply: (s, c) => {
+          morale(c.player, -12);
+          board(s, 1);
+          return 'Il déplacera la cérémonie, la mort dans l’âme.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'back-to-school',
+    title: 'Retour sur les bancs de l’école',
+    pickPlayer: (s) => byRating(userSquad(s)).find((p) => hasTrait(p, 'introvert') || hasTrait(p, 'professional')) ?? rotate(s, userSquad(s).filter((p) => p.age >= 22)),
+    condition: (s) => userSquad(s).some((p) => p.age >= 22),
+    text: (c) => `${pname(c)} veut s'inscrire en licence de gestion par correspondance. « Le football ne dure pas toujours », explique-t-il, un peu gêné.`,
+    options: [
+      {
+        label: 'Aménager ses horaires',
+        outcome: 'Moral +10, forme −1. Il devient « Professionnel ».',
+        apply: (_s, c) => {
+          morale(c.player, 10);
+          form(c.player, -1);
+          setTraits(c.player, ['professional']);
+          return 'Il révise ses partiels dans le bus des déplacements.';
+        },
+      },
+      {
+        label: 'Le club paie les frais (40 k€)',
+        outcome: 'Moral +14, confiance de la direction +2, moral de l’équipe +1.',
+        apply: (s, c) => {
+          if (!canPay(s, 40_000)) return tooPoor;
+          pay(s, 40_000, 'Frais de scolarité d’un joueur');
+          morale(c.player, 14);
+          board(s, 2);
+          teamMorale(s, 1);
+          return 'La presse salue un club qui pense à l’après-carrière.';
+        },
+      },
+      {
+        label: 'Concentre-toi sur le terrain',
+        outcome: 'Moral −6, forme +1.',
+        apply: (_s, c) => {
+          morale(c.player, -6);
+          form(c.player, 1);
+          return 'Il range ses manuels, un peu déçu.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'fasting-period',
+    title: 'Une période de jeûne',
+    role: 'fitness',
+    condition: (s) => userSquad(s).length >= 15,
+    text: (c) => `Plusieurs joueurs observent un mois de jeûne religieux en pleine période de matchs. ${name(c.staff) || 'Le préparateur physique'} propose d'adapter le programme.`,
+    options: [
+      {
+        label: 'Décaler les séances en soirée',
+        outcome: 'Récupération +8 % pendant 4 semaines, moral de l’équipe +4. Opinion +4.',
+        apply: (s, c, _r, ids) => {
+          modifier(s, ids, 'Séances aménagées', { recovery: 0.08 }, 4);
+          teamMorale(s, 4);
+          opinion(c.staff, 4);
+          return 'Les entraînements se terminent à la rupture du jeûne, autour d’un repas partagé.';
+        },
+      },
+      {
+        label: 'Plan nutritionnel sur mesure',
+        outcome: 'Risque de blessure −6 % et récupération +10 % pendant 4 semaines, moral de l’équipe +5.',
+        requires: staffTrait('meticulous', 'Un membre du staff Méticuleux'),
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Plan nutritionnel du jeûne', { injuryRisk: -0.06, recovery: 0.1 }, 4);
+          teamMorale(s, 5);
+          return 'Chaque calorie est comptée, chaque joueur suivi.';
+        },
+      },
+      {
+        label: 'Garder le programme habituel',
+        outcome: 'Fatigue +10 pour l’effectif, moral de l’équipe −3.',
+        apply: (s) => {
+          squadFatigue(s, 10);
+          teamMorale(s, -3);
+          return 'Les organismes souffrent à l’entraînement.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'betting-rumour',
+    title: 'Une rumeur de paris',
+    pickPlayer: (s) => rotate(s, userSquad(s).filter((p) => p.age >= 20)),
+    condition: (s) => userSquad(s).length >= 12,
+    text: (c) => `Un compte anonyme affirme que ${pname(c)} aurait parié sur des matchs. Aucune preuve, mais la rumeur enfle et la ligue demande au club de vérifier.`,
+    options: [
+      {
+        label: 'Ouvrir une enquête interne',
+        outcome: 'Confiance de la direction +2, moral du joueur −4. Verdict dans 2 semaines.',
+        apply: (s, c) => {
+          board(s, 2);
+          morale(c.player, -4);
+          chain(s, 'betting-verdict', 2, c);
+          return 'Le service juridique épluche les relevés avec l’accord du joueur.';
+        },
+      },
+      {
+        label: 'Le défendre publiquement',
+        outcome: 'Moral du joueur +8, confiance de la direction −3. Verdict dans 2 semaines.',
+        apply: (s, c) => {
+          morale(c.player, 8);
+          board(s, -3);
+          chain(s, 'betting-verdict', 2, c);
+          return '« Je mets ma main au feu pour lui », lancez-vous en conférence.';
+        },
+      },
+      {
+        label: 'L’écarter le temps de vérifier',
+        outcome: 'Indisponible 2 semaines, moral du joueur −10, confiance de la direction +3.',
+        apply: (s, c) => {
+          sideline(c.player, 2, 'Mis à l’écart (enquête)');
+          morale(c.player, -10);
+          board(s, 3);
+          chain(s, 'betting-verdict', 2, c);
+          return 'Il s’entraînera à part, le temps que la lumière soit faite.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'betting-verdict',
+    title: 'Blanchi',
+    followUp: true,
+    text: (c) => `L'enquête est close : ${pname(c)} n'a jamais parié. La rumeur venait d'un faux compte créé par un supporter adverse.`,
+    options: [
+      {
+        label: 'Communiqué et soutien total',
+        outcome: 'Moral du joueur +12, moral de l’équipe +3.',
+        apply: (s, c) => {
+          morale(c.player, 12);
+          teamMorale(s, 3);
+          return 'Le vestiaire l’accueille avec une haie d’honneur.';
+        },
+      },
+      {
+        label: 'Formation anti-paris pour tous (50 k€)',
+        outcome: 'Confiance de la direction +5, moral du joueur +6.',
+        apply: (s, c) => {
+          if (!canPay(s, 50_000)) return tooPoor;
+          pay(s, 50_000, 'Programme de prévention des paris');
+          board(s, 5);
+          morale(c.player, 6);
+          return 'La ligue cite le club en exemple.';
+        },
+      },
+      {
+        label: 'Tourner la page sans bruit',
+        outcome: 'Moral du joueur +4.',
+        apply: (_s, c) => {
+          morale(c.player, 4);
+          return 'Il reprend sa place, soulagé.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'prank-war',
+    title: 'La guerre des farces',
+    pickPlayer: (s) => withTrait(s, 'joker')[0] ?? rotate(s, userSquad(s)),
+    pickPlayer2: (s, first) => rotate(s, userSquad(s).filter((p) => p !== first && p.age <= 28)) ?? userSquad(s).find((p) => p !== first),
+    condition: (s) => withTrait(s, 'joker').length > 0 && userSquad(s).length >= 12,
+    text: (c) => `${pname(c)} a recouvert la voiture de ${p2name(c)} de post-it aux couleurs du club. La victime jure de se venger. Le vestiaire prend les paris.`,
+    options: [
+      {
+        label: 'Laisser la guerre se déclarer',
+        outcome: 'Moral de l’équipe +4. L’affaire risque de monter d’un cran.',
+        apply: (s, c) => {
+          teamMorale(s, 4);
+          chain(s, 'prank-war-escalation', 2, { ...c, player: c.player2, player2: c.player });
+          return 'Le vestiaire se divise en deux camps hilares.';
+        },
+      },
+      {
+        label: 'Siffler la fin de la récré',
+        outcome: 'Moral des deux −4, moral de l’équipe −1.',
+        apply: (s, c) => {
+          morale(c.player, -4);
+          morale(c.player2, -4);
+          teamMorale(s, -1);
+          return 'Les post-it finissent au recyclage.';
+        },
+      },
+      {
+        label: 'Arbitrer avec humour',
+        outcome: 'Moral des deux +4, moral de l’équipe +3. Fin de l’affaire.',
+        requires: lifestyle('mentor', 'Mentor'),
+        apply: (s, c) => {
+          morale(c.player, 4);
+          morale(c.player2, 4);
+          teamMorale(s, 3);
+          return 'Vous décernez un trophée du « meilleur farceur » en carton. Paix signée.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'prank-war-escalation',
+    title: 'La riposte',
+    followUp: true,
+    text: (c) => `${pname(c)} a riposté : poudre à éternuer dans les gants de ${p2name(c)} et casier rempli de gobelets d'eau. Même l'intendant s'y met.`,
+    options: [
+      {
+        label: 'Encore un round !',
+        outcome: 'Moral de l’équipe +5, risque de blessure +3 % pendant 2 semaines. Un final se prépare…',
+        apply: (s, c, _r, ids) => {
+          teamMorale(s, 5);
+          modifier(s, ids, 'Vestiaire en folie', { injuryRisk: 0.03 }, 2);
+          chain(s, 'prank-war-truce', 3, c);
+          return 'Les séances commencent avec cinq minutes de retard : il faut d’abord vider les casiers.';
+        },
+      },
+      {
+        label: 'Exiger un armistice',
+        outcome: 'Moral des deux −3, moral de l’équipe +2, opinion de l’adjoint +4.',
+        apply: (s, c) => {
+          morale(c.player, -3);
+          morale(c.player2, -3);
+          teamMorale(s, 2);
+          opinion(staffOf(s, 'assistant'), 4);
+          return 'Poignée de main forcée devant le groupe.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'prank-war-truce',
+    title: 'Le coup final',
+    followUp: true,
+    text: (c) => `${pname(c)} et ${p2name(c)} ont scellé la paix… en s'alliant contre vous : votre bureau est entièrement emballé dans du papier cadeau.`,
+    options: [
+      {
+        label: 'Éclater de rire',
+        outcome: 'Moral de l’équipe +8, moral des deux +5, confiance de la direction −2.',
+        apply: (s, c) => {
+          teamMorale(s, 8);
+          morale(c.player, 5);
+          morale(c.player2, 5);
+          board(s, -2);
+          return 'La vidéo de votre réaction fait un million de vues.';
+        },
+      },
+      {
+        label: 'Sanction collective : tours de terrain',
+        outcome: 'Moral de l’équipe −4, fatigue +5 pour l’effectif, confiance de la direction +2.',
+        apply: (s) => {
+          teamMorale(s, -4);
+          squadFatigue(s, 5);
+          board(s, 2);
+          return 'Vingt tours de terrain, sous les sifflets amusés des jeunes du centre.';
+        },
+      },
+      {
+        label: 'Contre-attaque du coach',
+        outcome: 'Moral de l’équipe +10, force en match +1 % pendant 3 semaines.',
+        requires: lifestyle('leader', 'Meneur d’hommes'),
+        apply: (s, _c, _r, ids) => {
+          teamMorale(s, 10);
+          modifier(s, ids, 'Un vestiaire uni par le rire', { matchStrength: 0.01 }, 3);
+          return 'Leurs voitures se retrouvent garées… sur la pelouse d’honneur. Respect éternel.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'captain-challenge',
+    title: 'Le brassard contesté',
+    pickPlayer: (s) => byRating(userSquad(s)).find((p) => hasTrait(p, 'ambitious')) ?? byRating(userSquad(s))[1],
+    pickPlayer2: (s, first) => withTrait(s, 'leader').find((p) => p !== first) ?? [...userSquad(s)].filter((p) => p !== first).sort((a, b) => b.age - a.age)[0],
+    condition: (s) => s.currentWeek >= 8 && withTrait(s, 'ambitious').length > 0,
+    text: (c) => `${pname(c)} estime que ${p2name(c)} n'est plus à la hauteur du brassard et le dit ouvertement dans le vestiaire. Les joueurs attendent votre arbitrage.`,
+    options: [
+      {
+        label: 'Confirmer le capitaine',
+        outcome: 'Moral du capitaine +8, du prétendant −10, moral de l’équipe +2.',
+        apply: (s, c) => {
+          morale(c.player2, 8);
+          morale(c.player, -10);
+          teamMorale(s, 2);
+          return 'La hiérarchie ne bouge pas.';
+        },
+      },
+      {
+        label: 'Donner le brassard au prétendant',
+        outcome: 'Moral du prétendant +14, il devient « Meneur ». Moral de l’ancien capitaine −14.',
+        apply: (_s, c) => {
+          morale(c.player, 14);
+          setTraits(c.player, ['leader']);
+          morale(c.player2, -14);
+          return 'Un nouveau visage portera le brassard.';
+        },
+      },
+      {
+        label: 'Faire voter le vestiaire',
+        outcome: 'Moral de l’équipe +5, moral des deux +2.',
+        requires: { label: 'Un Meneur dans l’effectif', test: (s) => withTrait(s, 'leader').length > 0 },
+        apply: (s, c) => {
+          teamMorale(s, 5);
+          morale(c.player, 2);
+          morale(c.player2, 2);
+          return 'Le vote à bulletin secret apaise tout le monde.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'french-lessons',
+    title: 'Des cours de français',
+    pickPlayer: (s) => [...userSquad(s)].filter((p) => p.nationality !== 'FRA').sort((a, b) => a.age - b.age)[0],
+    pickPlayer2: (s, first) => withTrait(s, 'joker').find((p) => p !== first && p.nationality === 'FRA') ?? byRating(userSquad(s)).find((p) => p !== first && p.nationality === 'FRA') ?? userSquad(s).find((p) => p !== first),
+    condition: (s) => userSquad(s).some((p) => p.nationality !== 'FRA') && userSquad(s).some((p) => p.nationality === 'FRA'),
+    text: (c) => `${pname(c)} ne comprend toujours pas les consignes à la mi-temps. Il demande à apprendre le français ; ${p2name(c)} se propose comme professeur.`,
+    options: [
+      {
+        label: 'Engager une professeure (30 k€)',
+        outcome: 'Moral +6, forme +1. Dans 6 semaines, il pourrait étonner tout le monde.',
+        apply: (s, c) => {
+          if (!canPay(s, 30_000)) return tooPoor;
+          pay(s, 30_000, 'Cours de français');
+          morale(c.player, 6);
+          form(c.player, 1);
+          chain(s, 'french-interview', 6, c);
+          return 'Deux heures de conjugaison après chaque entraînement.';
+        },
+      },
+      {
+        label: 'Le confier à son coéquipier',
+        outcome: 'Moral des deux +4, moral de l’équipe +2. Résultat dans 8 semaines… avec un vocabulaire particulier.',
+        apply: (s, c) => {
+          morale(c.player, 4);
+          morale(c.player2, 4);
+          teamMorale(s, 2);
+          chain(s, 'french-interview', 8, c);
+          return 'Les premiers mots appris ne sont pas tous publiables.';
+        },
+      },
+      {
+        label: 'Le football est un langage universel',
+        outcome: 'Moral −5.',
+        apply: (_s, c) => {
+          morale(c.player, -5);
+          return 'Il continuera de hocher la tête sans comprendre.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'french-interview',
+    title: 'Première interview en français',
+    followUp: true,
+    text: (c) => `Devant les caméras, ${pname(c)} répond pour la première fois en français. Quelques fautes, beaucoup d'accent… et un tonnerre d'applaudissements.`,
+    options: [
+      {
+        label: 'Publier la vidéo sur les réseaux',
+        outcome: 'Moral +10, recettes +3 % pendant 6 semaines.',
+        apply: (s, c, _r, ids) => {
+          morale(c.player, 10);
+          modifier(s, ids, 'Le buzz de l’interview', { income: 0.03 }, 6);
+          return 'Les supporters l’adoptent définitivement.';
+        },
+      },
+      {
+        label: 'Lui confier la causerie d’avant-match',
+        outcome: 'Moral +8, moral de l’équipe +5, force en match +1 % pendant 1 semaine.',
+        apply: (s, c, _r, ids) => {
+          morale(c.player, 8);
+          teamMorale(s, 5);
+          modifier(s, ids, 'Causerie bilingue', { matchStrength: 0.01 }, 1);
+          return 'Trois phrases, un poing levé : le vestiaire est debout.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'brother-agent',
+    title: 'Le frère devient agent',
+    pickPlayer: (s) => byRating(userSquad(s)).slice(0, 14).find((p) => p.age <= 27 && p.contractYears <= 2) ?? byRating(userSquad(s))[4],
+    condition: (s) => byRating(userSquad(s)).slice(0, 14).some((p) => p.age <= 27 && p.contractYears <= 2),
+    text: (c) => `${pname(c)} a renvoyé son agent pour confier ses intérêts à son grand frère, qui débarque au centre d'entraînement en costume flambant neuf et sans la moindre licence.`,
+    options: [
+      {
+        label: 'Le recevoir poliment',
+        outcome: 'Moral du joueur +6. Le frère reviendra avec ses exigences.',
+        apply: (s, c) => {
+          morale(c.player, 6);
+          chain(s, 'brother-agent-demands', 5, c);
+          return 'Café, sourires et carte de visite imprimée la veille.';
+        },
+      },
+      {
+        label: 'Exiger un agent licencié',
+        outcome: 'Moral du joueur −8, discussions de contrat bloquées 4 semaines.',
+        apply: (s, c) => {
+          morale(c.player, -8);
+          if (c.player) c.player.talksBlockedUntil = stamp(s) + 4;
+          return 'Le frère repart vexé ; le joueur aussi.';
+        },
+      },
+      {
+        label: 'Prendre le frère sous votre aile',
+        outcome: 'Moral du joueur +5, exigences salariales −4 % pendant 8 semaines.',
+        requires: lifestyle('negotiator', 'Négociateur'),
+        apply: (s, c, _r, ids) => {
+          morale(c.player, 5);
+          modifier(s, ids, 'Un agent novice et reconnaissant', { wageDemands: -0.04 }, 8);
+          return 'Vous lui apprenez le métier… à votre façon.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'brother-agent-demands',
+    title: 'Les exigences du frère',
+    followUp: true,
+    text: (c) => `Le frère de ${pname(c)} revient avec une liste : salaire +30 %, un poste au club pour leur cousin et la voiture de fonction du président.`,
+    options: [
+      {
+        label: 'Accepter le salaire (+30 %, +1 an)',
+        outcome: 'Salaire +30 %, contrat +1 an, moral +10.',
+        apply: (_s, c) => {
+          if (c.player) {
+            c.player.wage = Math.round(c.player.wage * 1.3);
+            c.player.contractYears += 1;
+          }
+          morale(c.player, 10);
+          return 'Il signe, la famille fête ça bruyamment.';
+        },
+      },
+      {
+        label: 'Embaucher le cousin (40 k€)',
+        outcome: 'Moral +8, aucune augmentation.',
+        apply: (s, c) => {
+          if (!canPay(s, 40_000)) return tooPoor;
+          pay(s, 40_000, 'Emploi du cousin');
+          morale(c.player, 8);
+          return 'Le cousin devient « chargé de mission ». Personne ne sait laquelle.';
+        },
+      },
+      {
+        label: 'Tout refuser',
+        outcome: 'Moral −10. Une chance sur trois qu’il demande à partir.',
+        apply: (_s, c, rng) => {
+          morale(c.player, -10);
+          if (c.player && rng.chance(hasTrait(c.player, 'loyal') ? 0.1 : 0.33)) {
+            c.player.transferListed = true;
+            return 'Le frère annonce à la presse que son client veut partir.';
+          }
+          return 'Le frère claque la porte ; le joueur, lui, reste.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'tattoo-bet',
+    title: 'Le pari du tatouage',
+    pickPlayer: (s) => withTrait(s, 'joker')[0] ?? withTrait(s, 'partygoer')[0] ?? rotate(s, userSquad(s)),
+    condition: (s) => userSquad(s).length >= 12 && !!nextFixture(s),
+    text: (c) => `${pname(c)} jure devant tout le vestiaire de se faire tatouer l'écusson du club si l'équipe gagne ses trois prochains matchs.`,
+    options: [
+      {
+        label: 'Pari tenu !',
+        outcome: 'Moral de l’équipe +5, force en match +1 % pendant 3 semaines.',
+        apply: (s, c, _r, ids) => {
+          teamMorale(s, 5);
+          modifier(s, ids, 'Le pari du tatouage', { matchStrength: 0.01 }, 3);
+          chain(s, 'tattoo-payoff', 3, c);
+          return 'Le tatoueur du centre-ville est déjà prévenu.';
+        },
+      },
+      {
+        label: 'Et vous vous rasez la tête',
+        outcome: 'Moral de l’équipe +8, force en match +2 % pendant 3 semaines.',
+        requires: lifestyle('leader', 'Meneur d’hommes'),
+        apply: (s, c, _r, ids) => {
+          teamMorale(s, 8);
+          modifier(s, ids, 'Double pari dans le vestiaire', { matchStrength: 0.02 }, 3);
+          chain(s, 'tattoo-payoff', 3, c);
+          return 'Le vestiaire n’a jamais été aussi motivé.';
+        },
+      },
+      {
+        label: 'Pas de bêtises',
+        outcome: 'Moral du joueur −2.',
+        apply: (_s, c) => {
+          morale(c.player, -2);
+          return 'Il range son croquis, déçu.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'tattoo-payoff',
+    title: 'L’heure de vérité au salon de tatouage',
+    followUp: true,
+    text: (c, s) =>
+      recentResults(s, 3).every((r) => r === 'W') && recentResults(s, 3).length === 3
+        ? `Trois victoires de rang : ${pname(c)} doit honorer sa parole. Le tatoueur attend, aiguille en main.`
+        : `La série s'est arrêtée : ${pname(c)} échappe au tatouage… et le vestiaire ne le lâche plus avec ça.`,
+    options: [
+      {
+        label: 'Filmer le moment pour les supporters',
+        outcome: 'Si le pari est gagné : moral +10, recettes +4 % pendant 6 semaines. Sinon : moral de l’équipe +2.',
+        apply: (s, c, _r, ids) => {
+          if (recentResults(s, 3).length === 3 && recentResults(s, 3).every((r) => r === 'W')) {
+            morale(c.player, 10);
+            modifier(s, ids, 'L’écusson dans la peau', { income: 0.04 }, 6);
+            setTraits(c.player, ['loyal']);
+            return 'Un écusson sur le mollet, et un statut de légende en tribune.';
+          }
+          teamMorale(s, 2);
+          return 'Le bêtisier de ses excuses fait rire tout le monde.';
+        },
+      },
+      {
+        label: 'Tourner la page',
+        outcome: 'Moral du joueur +3.',
+        apply: (_s, c) => {
+          morale(c.player, 3);
+          return 'Une histoire de plus pour les soirées d’équipe.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'shirt-number',
+    title: 'Il veut le numéro 10',
+    pickPlayer: (s) => byRating(userSquad(s)).find((p) => ['AM', 'CM', 'LW', 'RW', 'ST'].includes(p.position) && (hasTrait(p, 'ambitious') || p.age <= 23)),
+    condition: (s) => userSquad(s).some((p) => ['AM', 'CM', 'LW', 'RW', 'ST'].includes(p.position) && (hasTrait(p, 'ambitious') || p.age <= 23)),
+    text: (c) => `${pname(c)} réclame le mythique numéro 10, libre depuis le départ d'une légende du club. Les supporters sont partagés.`,
+    options: [
+      {
+        label: 'Lui donner le 10',
+        outcome: 'Moral +12, recettes +2 % pendant 6 semaines (les maillots s’arrachent), moral de l’équipe −2.',
+        apply: (s, c, _r, ids) => {
+          morale(c.player, 12);
+          modifier(s, ids, 'Le nouveau numéro 10', { income: 0.02 }, 6);
+          teamMorale(s, -2);
+          return 'Floquage express à la boutique.';
+        },
+      },
+      {
+        label: 'Le 10 se mérite',
+        outcome: 'Moral −6, forme +1 (il veut vous prouver que vous avez tort).',
+        apply: (_s, c) => {
+          morale(c.player, -6);
+          form(c.player, 1);
+          return '« Reviens me voir avec quinze buts. »';
+        },
+      },
+      {
+        label: 'Retirer le 10 en hommage',
+        outcome: 'Moral de l’équipe +4, confiance de la direction +2, moral du joueur −4.',
+        apply: (s, c) => {
+          teamMorale(s, 4);
+          board(s, 2);
+          morale(c.player, -4);
+          return 'Le numéro rejoint le musée du club.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'hometown-match',
+    title: 'Le match du quartier',
+    pickPlayer: (s) => byRating(userSquad(s)).find((p) => hasTrait(p, 'loyal') || hasTrait(p, 'leader')) ?? rotate(s, userSquad(s)),
+    condition: (s) => userSquad(s).length >= 12,
+    text: (c) => `${pname(c)} organise un match caritatif dans le quartier où il a grandi, contre ses copains d'enfance. Il aimerait que quelques coéquipiers l'accompagnent.`,
+    options: [
+      {
+        label: 'Envoyer une délégation',
+        outcome: 'Moral du joueur +10, moral de l’équipe +4, fatigue +8 pour 5 joueurs.',
+        apply: (s, c) => {
+          morale(c.player, 10);
+          teamMorale(s, 4);
+          [c.player, ...userSquad(s).filter((p) => p !== c.player).slice(0, 4)].forEach((p) => fatigue(p, 8));
+          return 'Un dimanche de foot sur un terrain synthétique pelé, et des centaines de gamins ravis.';
+        },
+      },
+      {
+        label: 'Le club prend tout en charge (60 k€)',
+        outcome: 'Moral du joueur +12, confiance de la direction +3, recettes +2 % pendant 8 semaines.',
+        apply: (s, c, _r, ids) => {
+          if (!canPay(s, 60_000)) return tooPoor;
+          pay(s, 60_000, 'Match caritatif');
+          morale(c.player, 12);
+          board(s, 3);
+          modifier(s, ids, 'Un club proche des quartiers', { income: 0.02 }, 8);
+          return 'Bus du club, maillots offerts et goûter géant.';
+        },
+      },
+      {
+        label: 'Trop de risques de blessure',
+        outcome: 'Moral du joueur −8.',
+        apply: (_s, c) => {
+          morale(c.player, -8);
+          return 'Il y va seul, sans le soutien du club.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'growth-spurt',
+    title: 'Poussée de croissance',
+    role: 'doctor',
+    pickPlayer: (s) => [...s.players].filter((p) => p.clubId === s.userClubId && p.age <= 19).sort((a, b) => b.potential - a.potential)[0],
+    condition: (s) => s.players.some((p) => p.clubId === s.userClubId && p.age <= 19),
+    text: (c) => `${pname(c)} a pris huit centimètres en six mois. ${name(c.staff) || 'Le médecin'} s'inquiète pour ses genoux, mais le gamin domine désormais tous les duels aériens.`,
+    options: [
+      {
+        label: 'Programme adapté et repos',
+        outcome: 'Indisponible 2 semaines, potentiel +2. Opinion du médecin +5.',
+        apply: (_s, c) => {
+          sideline(c.player, 2, 'Douleurs de croissance');
+          if (c.player) c.player.potential = Math.min(95, c.player.potential + 2);
+          opinion(c.staff, 5);
+          return 'Gainage, étirements et patience.';
+        },
+      },
+      {
+        label: 'Le laisser jouer',
+        outcome: 'Note +1. Une chance sur trois de se blesser 4 semaines.',
+        apply: (_s, c, rng) => {
+          if (c.player) c.player.rating = Math.min(c.player.potential, c.player.rating + 1);
+          if (rng.chance(0.33)) {
+            sideline(c.player, 4, 'Maladie d’Osgood-Schlatter');
+            return 'Le genou a lâché : quatre semaines d’arrêt.';
+          }
+          return 'Il s’adapte à son nouveau corps à toute vitesse.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'influencer',
+    title: 'Le joueur influenceur',
+    pickPlayer: (s) => withTrait(s, 'partygoer')[0] ?? withTrait(s, 'joker')[0] ?? byRating(userSquad(s)).find((p) => p.age <= 25),
+    condition: (s) => userSquad(s).some((p) => p.age <= 25),
+    text: (c) => `Les vidéos de ${pname(c)} cartonnent : deux millions d'abonnés. Une marque de boissons énergisantes veut en faire son égérie… pendant les heures d'entraînement.`,
+    options: [
+      {
+        label: 'Accepter, contre une commission (+150 k€)',
+        outcome: '+150 k€, moral du joueur +6, forme −1.',
+        apply: (s, c) => {
+          addMoney(s, s.userClubId, 'sponsor', 150_000, 'Commission sur un contrat d’image');
+          morale(c.player, 6);
+          form(c.player, -1);
+          return 'Tournage entre deux séances, sourire Colgate.';
+        },
+      },
+      {
+        label: 'Uniquement les jours de repos',
+        outcome: 'Moral du joueur +3.',
+        apply: (_s, c) => {
+          morale(c.player, 3);
+          return 'Compromis accepté, contrat légèrement revu à la baisse.';
+        },
+      },
+      {
+        label: 'Interdire le partenariat',
+        outcome: 'Moral du joueur −10, il perd le trait « Fêtard » s’il l’avait. Opinion de l’adjoint +4.',
+        apply: (s, c) => {
+          morale(c.player, -10);
+          setTraits(c.player, [], ['partygoer']);
+          opinion(staffOf(s, 'assistant'), 4);
+          return 'Il poste une story énigmatique et range son téléphone.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'diet-revolution',
+    title: 'La révolution de l’assiette',
+    role: 'fitness',
+    pickPlayer: (s) => withTrait(s, 'professional')[0] ?? byRating(userSquad(s))[0],
+    condition: (s) => withTrait(s, 'professional').length > 0,
+    text: (c) => `${pname(c)} a tout changé dans son alimentation et vole sur le terrain. Il veut convertir le vestiaire ; ${name(c.staff) || 'le préparateur'} est enthousiaste, le chef cuisinier beaucoup moins.`,
+    options: [
+      {
+        label: 'Refondre le menu du club (80 k€)',
+        outcome: 'Récupération +10 % pendant 10 semaines, moral de l’équipe −2 (adieu les frites).',
+        apply: (s, c, _r, ids) => {
+          if (!canPay(s, 80_000)) return tooPoor;
+          pay(s, 80_000, 'Nouveau programme nutritionnel');
+          modifier(s, ids, 'Menu de champion', { recovery: 0.1 }, 10);
+          teamMorale(s, -2);
+          opinion(c.staff, 5);
+          return 'Quinoa, patates douces et smoothies verts au self.';
+        },
+      },
+      {
+        label: 'Le laisser convaincre qui veut',
+        outcome: 'Moral du joueur +5, récupération +4 % pendant 6 semaines.',
+        apply: (s, c, _r, ids) => {
+          morale(c.player, 5);
+          modifier(s, ids, 'Quelques convertis', { recovery: 0.04 }, 6);
+          return 'Une table « healthy » apparaît au réfectoire.';
+        },
+      },
+      {
+        label: 'On ne touche pas au chef',
+        outcome: 'Moral de l’équipe +2, opinion du préparateur −4.',
+        apply: (s, c) => {
+          teamMorale(s, 2);
+          opinion(c.staff, -4);
+          return 'Le gratin dauphinois du jeudi est sauvé.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'gaming-nights',
+    title: 'Nuits blanches sur la console',
+    pickPlayer: (s) => [...userSquad(s)].filter((p) => p.age <= 23).sort((a, b) => b.fatigue - a.fatigue)[0],
+    condition: (s) => userSquad(s).some((p) => p.age <= 23),
+    text: (c) => `${pname(c)} arrive aux séances les yeux rouges : il dispute des tournois de jeu vidéo en ligne jusqu'à 3 heures du matin, sous un pseudonyme que tout le monde connaît.`,
+    options: [
+      {
+        label: 'Couvre-feu numérique',
+        outcome: 'Fatigue −20, moral −8.',
+        apply: (_s, c) => {
+          fatigue(c.player, -20);
+          morale(c.player, -8);
+          return 'Wi-fi coupé à 23 heures au centre d’hébergement.';
+        },
+      },
+      {
+        label: 'Créer une section e-sport (100 k€)',
+        outcome: 'Moral +10, recettes +3 % pendant 10 semaines. Fatigue +5.',
+        apply: (s, c, _r, ids) => {
+          if (!canPay(s, 100_000)) return tooPoor;
+          pay(s, 100_000, 'Création d’une section e-sport');
+          morale(c.player, 10);
+          fatigue(c.player, 5);
+          modifier(s, ids, 'Section e-sport', { income: 0.03 }, 10);
+          return 'Il devient capitaine de l’équipe virtuelle du club.';
+        },
+      },
+      {
+        label: 'Lui parler d’hygiène de vie',
+        outcome: 'Fatigue −10. Une chance sur deux qu’il devienne « Professionnel ».',
+        requires: lifestyle('mentor', 'Mentor'),
+        apply: (_s, c, rng) => {
+          fatigue(c.player, -10);
+          if (rng.chance(0.5)) {
+            setTraits(c.player, ['professional']);
+            return 'Il revend sa deuxième manette. Déclic.';
+          }
+          return 'Il promet de se coucher plus tôt… le week-end.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'lucky-ritual',
+    title: 'Le rituel porte-bonheur',
+    pickPlayer: (s) => withTrait(s, 'clutch')[0],
+    pickClub: (s) => nextOpponent(s),
+    condition: (s) => withTrait(s, 'clutch').length > 0 && !!nextOpponent(s),
+    text: (c) => `Avant d'affronter ${c.club?.name ?? 'le prochain adversaire'}, ${pname(c)} exige de reproduire son rituel : même siège dans le bus, mêmes chaussettes non lavées, même chanson à fond.`,
+    options: [
+      {
+        label: 'Respecter le rituel',
+        outcome: 'Moral +6, forme +1, moral de l’équipe +2.',
+        apply: (s, c) => {
+          morale(c.player, 6);
+          form(c.player, 1);
+          teamMorale(s, 2);
+          return 'L’intendant isole les chaussettes dans un sac hermétique.';
+        },
+      },
+      {
+        label: 'Tout le monde s’y met',
+        outcome: 'Force en match +2 % pendant 1 semaine, moral de l’équipe +4.',
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Superstition collective', { matchStrength: 0.02 }, 1);
+          teamMorale(s, 4);
+          return 'Le bus entier chante la même chanson, faux.';
+        },
+      },
+      {
+        label: 'La chance, ça n’existe pas',
+        outcome: 'Moral −8, forme −1.',
+        apply: (_s, c) => {
+          morale(c.player, -8);
+          form(c.player, -1);
+          return 'Il monte dans le bus, livide.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'media-day',
+    title: 'Journée médias obligatoire',
+    pickPlayer: (s) => withTrait(s, 'introvert')[0] ?? byRating(userSquad(s))[0],
+    condition: (s) => withTrait(s, 'introvert').length > 0,
+    text: (c) => `Le sponsor principal exige ${pname(c)} pour une journée de tournage publicitaire. Le joueur, d'une timidité maladive, vous supplie de l'en dispenser.`,
+    options: [
+      {
+        label: 'Il doit y aller',
+        outcome: '+80 k€ de prime sponsor, moral −10.',
+        apply: (s, c) => {
+          addMoney(s, s.userClubId, 'sponsor', 80_000, 'Prime de tournage publicitaire');
+          morale(c.player, -10);
+          return 'Quarante-deux prises pour une phrase de six mots.';
+        },
+      },
+      {
+        label: 'Envoyer le capitaine à sa place',
+        outcome: 'Moral +6, moral de l’équipe +2.',
+        requires: { label: 'Un Meneur dans l’effectif', test: (s) => withTrait(s, 'leader').length > 0 },
+        apply: (s, c) => {
+          morale(c.player, 6);
+          teamMorale(s, 2);
+          return `${fullName(withTrait(s, 'leader')[0])} assure le tournage avec aplomb.`;
+        },
+      },
+      {
+        label: 'L’accompagner personnellement',
+        outcome: '+80 k€, moral +4. Une chance sur trois qu’il perde le trait « Discret ».',
+        requires: lifestyle('mentor', 'Mentor'),
+        apply: (s, c, rng) => {
+          addMoney(s, s.userClubId, 'sponsor', 80_000, 'Prime de tournage publicitaire');
+          morale(c.player, 4);
+          if (rng.chance(0.33)) setTraits(c.player, [], ['introvert']);
+          return 'À vos côtés, il finit par sourire à la caméra.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'testimonial',
+    title: 'Dix ans sous le même maillot',
+    pickPlayer: (s) => [...userSquad(s)].filter((p) => hasTrait(p, 'loyal') && p.age >= 28).sort((a, b) => b.age - a.age)[0],
+    condition: (s) => userSquad(s).some((p) => hasTrait(p, 'loyal') && p.age >= 28),
+    text: (c) => `${pname(c)} fête ses dix ans au club. Les supporters réclament un match jubilé en son honneur.`,
+    options: [
+      {
+        label: 'Organiser le jubilé',
+        outcome: '+300 k€ de recettes, moral du joueur +15, moral de l’équipe +4, fatigue +5 pour l’effectif.',
+        apply: (s, c) => {
+          addMoney(s, s.userClubId, 'gate', 300_000, 'Match jubilé');
+          morale(c.player, 15);
+          teamMorale(s, 4);
+          squadFatigue(s, 5);
+          return 'Une ovation de dix minutes, des anciens partout sur la pelouse.';
+        },
+      },
+      {
+        label: 'Lui offrir une prolongation symbolique',
+        outcome: 'Contrat +1 an, moral +10, confiance de la direction +2.',
+        apply: (s, c) => {
+          if (c.player) c.player.contractYears += 1;
+          morale(c.player, 10);
+          board(s, 2);
+          return 'Il signe devant la tribune, sous les applaudissements.';
+        },
+      },
+      {
+        label: 'Une plaque au musée du club',
+        outcome: 'Moral +5.',
+        apply: (_s, c) => {
+          morale(c.player, 5);
+          return 'Son maillot encadré rejoint la galerie des fidèles.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'birthday-bash',
+    title: 'Un anniversaire XXL',
+    pickPlayer: (s) => withTrait(s, 'partygoer')[0] ?? rotate(s, userSquad(s).filter((p) => p.age <= 28)),
+    condition: (s) => withTrait(s, 'partygoer').length > 0 && !!nextFixture(s),
+    text: (c) => `${pname(c)} fête ses ${c.player?.age ?? '?'} ans jeudi soir : DJ, piscine, deux cents invités. Tout le vestiaire est convié… à deux jours du match.`,
+    options: [
+      {
+        label: 'Autoriser, avec couvre-feu à minuit',
+        outcome: 'Moral de l’équipe +5, fatigue +6 pour l’effectif.',
+        apply: (s, c) => {
+          teamMorale(s, 5);
+          squadFatigue(s, 6);
+          morale(c.player, 4);
+          return 'À minuit pile, l’adjoint coupe la musique.';
+        },
+      },
+      {
+        label: 'Reporter après le match',
+        outcome: 'Moral du joueur −6, moral de l’équipe +2.',
+        apply: (s, c) => {
+          morale(c.player, -6);
+          teamMorale(s, 2);
+          return 'Il fait la moue, puis commande un plus gros gâteau.';
+        },
+      },
+      {
+        label: 'Laisser faire sans limite',
+        outcome: 'Moral de l’équipe +8, fatigue +15 pour l’effectif, risque de blessure +6 % pendant 1 semaine.',
+        apply: (s, _c, _r, ids) => {
+          teamMorale(s, 8);
+          squadFatigue(s, 15);
+          modifier(s, ids, 'Lendemain d’anniversaire', { injuryRisk: 0.06 }, 1);
+          return 'Les photos de la soirée restent, heureusement, privées.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'rookie-song',
+    title: 'Le bizutage en chanson',
+    pickPlayer: (s) => [...userSquad(s)].sort((a, b) => a.age - b.age)[0],
+    condition: (s) => userSquad(s).some((p) => p.age <= 20),
+    text: (c) => `Tradition oblige, ${pname(c)} doit chanter debout sur une chaise devant tout le groupe. Il est tétanisé ; les anciens tapent déjà sur les tables.`,
+    options: [
+      {
+        label: 'La tradition, c’est sacré',
+        outcome: 'Moral de l’équipe +5, moral du jeune −3 (+6 s’il est Boute-en-train).',
+        apply: (s, c) => {
+          teamMorale(s, 5);
+          morale(c.player, hasTrait(c.player, 'joker') ? 6 : -3);
+          return hasTrait(c.player, 'joker') ? 'Il enflamme la salle : rappel exigé.' : 'Trois couplets faux, mais un vrai baptême.';
+        },
+      },
+      {
+        label: 'Chanter avec lui',
+        outcome: 'Moral du jeune +8, moral de l’équipe +4.',
+        requires: lifestyle('leader', 'Meneur d’hommes'),
+        apply: (s, c) => {
+          morale(c.player, 8);
+          teamMorale(s, 4);
+          return 'Duo improbable avec le coach : la vidéo fera date.';
+        },
+      },
+      {
+        label: 'Abolir le bizutage',
+        outcome: 'Moral du jeune +6, moral de l’équipe −3.',
+        apply: (s, c) => {
+          morale(c.player, 6);
+          teamMorale(s, -3);
+          return 'Les anciens trouvent que le football a bien changé.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'child-wish',
+    title: 'Le rêve d’un enfant',
+    pickPlayer: (s) => byRating(userSquad(s))[0],
+    condition: (s) => userSquad(s).length >= 11,
+    text: (c) => `Une association vous écrit : Lucas, 9 ans, hospitalisé depuis des mois, rêve de rencontrer ${pname(c)} et de fouler la pelouse du stade.`,
+    options: [
+      {
+        label: 'L’inviter à l’entraînement',
+        outcome: 'Moral du joueur +8, moral de l’équipe +6.',
+        apply: (s, c) => {
+          morale(c.player, 8);
+          teamMorale(s, 6);
+          return 'Lucas marque un penalty face au gardien titulaire. Le gardien plonge du mauvais côté, exprès.';
+        },
+      },
+      {
+        label: 'En faire le capitaine d’un jour',
+        outcome: 'Moral de l’équipe +8, confiance de la direction +3, recettes +2 % pendant 4 semaines.',
+        apply: (s, _c, _r, ids) => {
+          teamMorale(s, 8);
+          board(s, 3);
+          modifier(s, ids, 'Émotion au stade', { income: 0.02 }, 4);
+          return 'Il mène l’équipe sur la pelouse, brassard au bras. Tout le stade se lève.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'loan-request',
+    title: 'Il veut jouer ailleurs',
+    pickPlayer: (s) => [...userSquad(s)].filter((p) => p.age <= 22 && (p.squadStatus === 'backup' || p.squadStatus === 'prospect')).sort((a, b) => b.potential - a.potential)[0],
+    condition: (s) => userSquad(s).some((p) => p.age <= 22 && (p.squadStatus === 'backup' || p.squadStatus === 'prospect')),
+    text: (c) => `${pname(c)}, ${c.player?.age ?? '?'} ans, n'a presque pas joué. Il frappe à votre porte : « Je veux du temps de jeu, ici ou ailleurs. »`,
+    options: [
+      {
+        label: 'Lui promettre la rotation',
+        outcome: 'Statut Rotation, moral +10.',
+        apply: (_s, c) => {
+          if (c.player) c.player.squadStatus = 'rotation';
+          morale(c.player, 10);
+          return 'Il aura ses minutes, à lui de les saisir.';
+        },
+      },
+      {
+        label: 'Le rendre transférable',
+        outcome: 'Joueur transférable, moral +4.',
+        apply: (_s, c) => {
+          if (c.player) c.player.transferListed = true;
+          morale(c.player, 4);
+          return 'Son agent commence à appeler les clubs de division inférieure.';
+        },
+      },
+      {
+        label: 'Patience, ton heure viendra',
+        outcome: 'Moral −6, potentiel +1 s’il est Professionnel.',
+        apply: (_s, c) => {
+          morale(c.player, -6);
+          if (c.player && hasTrait(c.player, 'professional')) c.player.potential = Math.min(95, c.player.potential + 1);
+          return 'Il retourne s’entraîner, les dents serrées.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'coaching-badges',
+    title: 'Les diplômes d’entraîneur',
+    pickPlayer: (s) => [...userSquad(s)].filter((p) => p.age >= 30 && (hasTrait(p, 'leader') || hasTrait(p, 'professional'))).sort((a, b) => b.age - a.age)[0],
+    condition: (s) => userSquad(s).some((p) => p.age >= 30 && (hasTrait(p, 'leader') || hasTrait(p, 'professional'))),
+    text: (c) => `${pname(c)} prépare l'après : il veut passer ses diplômes d'entraîneur, avec des sessions de formation les lundis.`,
+    options: [
+      {
+        label: 'Financer la formation (40 k€)',
+        outcome: 'Moral +8. Dans 6 semaines, il pourra animer une séance.',
+        apply: (s, c) => {
+          if (!canPay(s, 40_000)) return tooPoor;
+          pay(s, 40_000, 'Formation d’entraîneur d’un joueur');
+          morale(c.player, 8);
+          chain(s, 'coaching-badges-session', 6, c);
+          return 'Il arrive aux séances avec un carnet et un stylo.';
+        },
+      },
+      {
+        label: 'Les lundis, c’est récupération',
+        outcome: 'Moral −5.',
+        apply: (_s, c) => {
+          morale(c.player, -5);
+          return 'Il passera ses diplômes après sa carrière.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'coaching-badges-session',
+    title: 'Le joueur-entraîneur',
+    followUp: true,
+    text: (c) => `Diplôme en poche, ${pname(c)} vous demande d'animer une séance. Les jeunes l'écoutent comme un oracle.`,
+    options: [
+      {
+        label: 'Lui confier les jeunes',
+        outcome: 'Progression des jeunes +8 % pendant 8 semaines, moral +6, opinion du formateur −3.',
+        apply: (s, c, _r, ids) => {
+          modifier(s, ids, 'Les séances du vétéran', { youthGrowth: 0.08 }, 8);
+          morale(c.player, 6);
+          opinion(staffOf(s, 'youth'), -3);
+          return 'Il découvre la vocation de transmettre.';
+        },
+      },
+      {
+        label: 'En faire un relais du staff',
+        outcome: 'Moral de l’équipe +4, opinion de l’adjoint +3, il devient « Meneur ».',
+        apply: (s, c) => {
+          teamMorale(s, 4);
+          opinion(staffOf(s, 'assistant'), 3);
+          setTraits(c.player, ['leader']);
+          return 'Un pont naturel entre le vestiaire et le staff.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'personal-docu',
+    title: 'Une caméra le suit partout',
+    pickPlayer: (s) => byRating(userSquad(s)).slice(0, 8).find((p) => hasTrait(p, 'ambitious') || hasTrait(p, 'partygoer')) ?? byRating(userSquad(s))[0],
+    condition: (s) => byRating(userSquad(s)).slice(0, 8).some((p) => hasTrait(p, 'ambitious') || hasTrait(p, 'partygoer')),
+    text: (c) => `${pname(c)} tourne un documentaire sur sa propre vie. L'équipe de tournage voudrait le suivre jusque dans le vestiaire.`,
+    options: [
+      {
+        label: 'Accès complet',
+        outcome: 'Moral +8. La diffusion pourrait faire parler…',
+        apply: (s, c) => {
+          morale(c.player, 8);
+          chain(s, 'personal-docu-release', 6, c);
+          return 'Une perche à micro s’invite dans les causeries.';
+        },
+      },
+      {
+        label: 'Pas au-delà du parking',
+        outcome: 'Moral −3.',
+        apply: (_s, c) => {
+          morale(c.player, -3);
+          return 'Le réalisateur filmera donc… des voitures.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'personal-docu-release',
+    title: 'Le documentaire sort',
+    followUp: true,
+    text: (c) => `Le documentaire de ${pname(c)} est en ligne. On l'y voit se plaindre de son temps de jeu, mais aussi rendre un vibrant hommage au club.`,
+    options: [
+      {
+        label: 'Organiser une avant-première au stade',
+        outcome: 'Recettes +3 % pendant 6 semaines, moral +6, confiance de la direction +1.',
+        apply: (s, c, _r, ids) => {
+          modifier(s, ids, 'Le documentaire du joueur', { income: 0.03 }, 6);
+          morale(c.player, 6);
+          board(s, 1);
+          return 'Tapis rouge et pop-corn dans les loges.';
+        },
+      },
+      {
+        label: 'Recadrer le joueur',
+        outcome: 'Moral −8, moral de l’équipe +3.',
+        apply: (s, c) => {
+          morale(c.player, -8);
+          teamMorale(s, 3);
+          return '« Les états d’âme, c’est dans mon bureau, pas sur une plateforme. »';
+        },
+      },
+    ],
+  },
+  {
+    id: 'ballon-dor-dream',
+    title: 'Il vise le Ballon d’or',
+    pickPlayer: (s) => byRating(userSquad(s)).slice(0, 3).find((p) => hasTrait(p, 'ambitious') && p.age <= 29) ?? byRating(userSquad(s)).slice(0, 3).find((p) => p.age <= 29),
+    condition: (s) => s.currentWeek >= 4 && s.currentWeek <= s.weeks.length - 12 && byRating(userSquad(s)).slice(0, 3).some((p) => p.age <= 29),
+    text: (c) => `En interview, ${pname(c)} annonce tranquillement qu'il vise le Ballon d'or cette saison. Les éditorialistes se gaussent ; le vestiaire attend votre réaction.`,
+    options: [
+      {
+        label: 'L’encourager publiquement',
+        outcome: 'Moral +10, forme +1. Bilan dans 10 semaines.',
+        apply: (s, c) => {
+          morale(c.player, 10);
+          form(c.player, 1);
+          chain(s, 'ballon-dor-verdict', 10, c);
+          return '« S’il y croit, j’y crois. »';
+        },
+      },
+      {
+        label: 'Le collectif d’abord',
+        outcome: 'Moral −5, moral de l’équipe +4.',
+        apply: (s, c) => {
+          morale(c.player, -5);
+          teamMorale(s, 4);
+          return 'Les trophées individuels attendront.';
+        },
+      },
+      {
+        label: 'En faire le joueur clé du projet',
+        outcome: 'Statut Joueur clé, moral +12. Bilan dans 10 semaines.',
+        apply: (s, c) => {
+          if (c.player) c.player.squadStatus = 'key';
+          morale(c.player, 12);
+          chain(s, 'ballon-dor-verdict', 10, c);
+          return 'Le système de jeu tournera autour de lui.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'ballon-dor-verdict',
+    title: 'La liste des nommés',
+    followUp: true,
+    text: (c) => {
+      const p = c.player;
+      const total = p ? p.stats.goals + p.stats.assists : 0;
+      return total >= 10
+        ? `${pname(c)} figure dans la liste des nommés au Ballon d'or (${p?.stats.goals ?? 0} buts, ${p?.stats.assists ?? 0} passes décisives). Le club entier en profite.`
+        : `La liste des nommés au Ballon d'or est tombée : ${pname(c)} n'y est pas (${p?.stats.goals ?? 0} buts, ${p?.stats.assists ?? 0} passes). Il accuse le coup.`;
+    },
+    options: [
+      {
+        label: 'Lancer une campagne du club (100 k€)',
+        outcome: 'S’il est nommé : recettes +5 % pendant 8 semaines, confiance +3, moral +8. Sinon : moral +6.',
+        apply: (s, c, _r, ids) => {
+          if (!canPay(s, 100_000)) return tooPoor;
+          pay(s, 100_000, 'Campagne Ballon d’or');
+          const total = c.player ? c.player.stats.goals + c.player.stats.assists : 0;
+          if (total >= 10) {
+            modifier(s, ids, 'Un nommé au Ballon d’or', { income: 0.05 }, 8);
+            board(s, 3);
+            morale(c.player, 8);
+            return 'Son visage s’affiche sur les bus de la ville.';
+          }
+          morale(c.player, 6);
+          return 'Une campagne « Le vrai Ballon d’or est chez nous » console le joueur.';
+        },
+      },
+      {
+        label: 'Le prolonger (+2 ans, +25 %)',
+        outcome: 'Contrat +2 ans, salaire +25 %, moral +10.',
+        apply: (_s, c) => {
+          if (c.player) {
+            c.player.contractYears += 2;
+            c.player.wage = Math.round(c.player.wage * 1.25);
+          }
+          morale(c.player, 10);
+          return 'Il signe en promettant de faire mieux l’an prochain.';
+        },
+      },
+      {
+        label: 'Garder les pieds sur terre',
+        outcome: 'Moral −3, forme +1.',
+        apply: (_s, c) => {
+          morale(c.player, -3);
+          form(c.player, 1);
+          return 'Il retourne bosser, piqué au vif.';
+        },
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------- 6e vague : le staff
+  {
+    id: 'pro-licence',
+    title: 'La licence Pro',
+    role: 'assistant',
+    text: (c) => `${name(c.staff)} veut passer la licence Pro, le diplôme ultime des entraîneurs. Une formation exigeante… et coûteuse.`,
+    options: [
+      {
+        label: 'Financer la licence (120 k€)',
+        outcome: 'Compétence +1, opinion +10. Diplômé, il pourrait être courtisé.',
+        apply: (s, c) => {
+          if (!canPay(s, 120_000)) return tooPoor;
+          pay(s, 120_000, 'Licence Pro de l’adjoint');
+          if (c.staff) c.staff.skill = Math.min(20, c.staff.skill + 1);
+          opinion(c.staff, 10);
+          const suitor = [...s.clubs].filter((x) => x.id !== s.userClubId).sort((a, b) => b.reputation - a.reputation)[3];
+          chain(s, 'pro-licence-offer', 10, { ...c, club: suitor });
+          return 'Il part en formation avec la bénédiction du club.';
+        },
+      },
+      {
+        label: 'Il la passera à ses frais',
+        outcome: 'Opinion −8.',
+        apply: (_s, c) => {
+          opinion(c.staff, -8);
+          return 'Il prend des congés sans solde pour s’y inscrire quand même.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'pro-licence-offer',
+    title: 'Le diplômé est courtisé',
+    followUp: true,
+    text: (c) => `Licence Pro en poche, ${name(c.staff) || 'votre adjoint'} reçoit une offre de ${c.club?.name ?? 'un club ambitieux'} pour devenir entraîneur principal.`,
+    options: [
+      {
+        label: 'L’augmenter (+25 %)',
+        outcome: 'Il reste. Salaire +25 %, opinion +10.',
+        apply: (_s, c) => {
+          if (c.staff) c.staff.wage = Math.round(c.staff.wage * 1.25);
+          opinion(c.staff, 10);
+          return 'Il reste, et sa voix compte désormais davantage.';
+        },
+      },
+      {
+        label: 'Lui souhaiter bonne chance',
+        outcome: 'Il quitte le club. Opinion des autres membres du staff +4.',
+        apply: (s, c, _r, ids) => {
+          if (!c.staff) return 'Il n’était déjà plus là.';
+          s.staff = s.staff.filter((m) => m.id !== c.staff!.id);
+          s.staff.forEach((m) => opinion(m, 4));
+          addNews(s, 'staff', `${name(c.staff)} prend son envol`, `Votre ancien adjoint devient entraîneur principal${c.club ? ` de ${c.club.name}` : ''}.`, ids);
+          return 'Vous serez fier de l’affronter.';
+        },
+      },
+      {
+        label: 'Lui promettre votre succession',
+        outcome: 'Il reste si son opinion atteint 55 (opinion +6) ; sinon il part.',
+        apply: (s, c, _r, ids) => {
+          if (!c.staff) return 'Il n’était déjà plus là.';
+          if (c.staff.opinion >= 55) {
+            opinion(c.staff, 6);
+            return '« Le jour où vous partirez, ce sera moi. » Marché conclu.';
+          }
+          s.staff = s.staff.filter((m) => m.id !== c.staff!.id);
+          addNews(s, 'staff', `${name(c.staff)} s’en va`, 'Votre adjoint a préféré l’offre extérieure.', ids);
+          return 'Il ne croit plus à vos promesses et s’en va.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'gps-vests',
+    title: 'Les brassières GPS',
+    role: 'fitness',
+    text: (c) => `${name(c.staff)} veut équiper chaque joueur de brassières GPS pour mesurer la charge d'entraînement au mètre près.`,
+    options: [
+      {
+        label: 'Équiper l’effectif (200 k€)',
+        outcome: 'Risque de blessure −6 % pendant 12 semaines, opinion +6. Les données pourraient révéler un joueur en surcharge.',
+        apply: (s, c, _r, ids) => {
+          if (!canPay(s, 200_000)) return tooPoor;
+          pay(s, 200_000, 'Brassières GPS');
+          modifier(s, ids, 'Suivi GPS de la charge', { injuryRisk: -0.06 }, 12);
+          opinion(c.staff, 6);
+          const tired = byRating(userSquad(s)).slice(0, 14).filter((p) => p.injuryWeeks === 0).sort((a, b) => b.fatigue - a.fatigue)[0];
+          if (tired) chain(s, 'gps-alert', 4, { ...c, player: tired });
+          return 'Les écrans s’allument dans le bureau du staff.';
+        },
+      },
+      {
+        label: 'Le chronomètre suffit',
+        outcome: 'Opinion −6.',
+        apply: (_s, c) => {
+          opinion(c.staff, -6);
+          return '« On gagnait déjà avant les satellites. »';
+        },
+      },
+    ],
+  },
+  {
+    id: 'gps-alert',
+    title: 'Alerte rouge sur les écrans',
+    followUp: true,
+    text: (c) => `Les données GPS sont formelles : ${pname(c)} accumule une charge dangereuse. ${name(c.staff) || 'Le préparateur'} recommande de le ménager.`,
+    options: [
+      {
+        label: 'Le mettre au repos',
+        outcome: 'Fatigue remise à zéro, moral −3, opinion du préparateur +6.',
+        apply: (_s, c) => {
+          if (c.player) c.player.fatigue = 0;
+          morale(c.player, -3);
+          opinion(c.staff, 6);
+          return 'Une semaine de vélo et de piscine.';
+        },
+      },
+      {
+        label: 'Il est indispensable',
+        outcome: 'Opinion −6. 40 % de risque de blessure (3 semaines), 20 % s’il est Professionnel.',
+        apply: (_s, c, rng) => {
+          opinion(c.staff, -6);
+          if (rng.chance(hasTrait(c.player, 'professional') ? 0.2 : 0.4)) {
+            sideline(c.player, 3, 'Élongation');
+            return 'L’élongation tant redoutée arrive au pire moment.';
+          }
+          return 'Il tient le choc. Cette fois.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'sleep-study',
+    title: 'Le sommeil des champions',
+    role: 'doctor',
+    text: (c) => `${name(c.staff)} a constaté que la moitié de l'effectif dort moins de six heures par nuit. Il propose une étude du sommeil avec un laboratoire spécialisé.`,
+    options: [
+      {
+        label: 'Lancer l’étude (90 k€)',
+        outcome: 'Récupération +8 % pendant 10 semaines, opinion +5.',
+        apply: (s, c, _r, ids) => {
+          if (!canPay(s, 90_000)) return tooPoor;
+          pay(s, 90_000, 'Étude du sommeil');
+          modifier(s, ids, 'Sommeil optimisé', { recovery: 0.08 }, 10);
+          opinion(c.staff, 5);
+          return 'Capteurs au poignet et rideaux occultants pour tout le monde.';
+        },
+      },
+      {
+        label: 'Protocole maison ultra-précis',
+        outcome: 'Récupération +10 % et risque de blessure −4 % pendant 10 semaines, sans frais.',
+        requires: staffTrait('meticulous', 'Staff méticuleux'),
+        apply: (s, c, _r, ids) => {
+          modifier(s, ids, 'Protocole de sommeil', { recovery: 0.1, injuryRisk: -0.04 }, 10);
+          opinion(c.staff, 4);
+          return 'Un tableau de sommeil individuel affiché dans chaque chambre.';
+        },
+      },
+      {
+        label: 'Chacun gère ses nuits',
+        outcome: 'Opinion −4.',
+        apply: (_s, c) => {
+          opinion(c.staff, -4);
+          return 'Le médecin range ses graphiques.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'video-cell',
+    title: 'Une cellule vidéo',
+    role: 'scout',
+    text: (c) => `${name(c.staff)} assure qu'il pourrait visionner trois fois plus de matchs avec deux analystes vidéo et un abonnement aux plateformes de données.`,
+    options: [
+      {
+        label: 'Créer la cellule (150 k€)',
+        outcome: 'Vitesse du scouting +20 % et fiabilité des rapports +5 pendant 15 semaines. Opinion +6.',
+        apply: (s, c, _r, ids) => {
+          if (!canPay(s, 150_000)) return tooPoor;
+          pay(s, 150_000, 'Cellule vidéo de recrutement');
+          modifier(s, ids, 'Cellule vidéo', { scoutSpeed: 0.2, scoutAccuracy: 5 }, 15);
+          opinion(c.staff, 6);
+          return 'Six écrans et beaucoup de café.';
+        },
+      },
+      {
+        label: 'Rien ne vaut le terrain',
+        outcome: 'Opinion −3 (+3 s’il est Globe-trotteur).',
+        apply: (_s, c) => {
+          opinion(c.staff, c.staff?.traits.includes('globetrotter') ? 3 : -3);
+          return c.staff?.traits.includes('globetrotter') ? 'Il approuve : il préfère les stades aux écrans.' : 'Il reprend la route, un peu frustré.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'pushy-parent',
+    title: 'Un père envahissant',
+    role: 'youth',
+    pickPlayer: (s) => [...youthOf(s, s.userClubId)].sort((a, b) => b.potential - a.potential)[0],
+    condition: (s) => youthOf(s, s.userClubId).length > 0,
+    text: (c) => `Le père de ${pname(c)} hurle des consignes depuis la main courante à chaque match des jeunes et menace de placer son fils ailleurs. ${name(c.staff) || 'Le formateur'} est à bout.`,
+    options: [
+      {
+        label: 'Interdire le père de bord de terrain',
+        outcome: 'Opinion du formateur +8, moral du jeune −6.',
+        apply: (_s, c) => {
+          opinion(c.staff, 8);
+          morale(c.player, -6);
+          return 'Il suivra les matchs depuis la tribune, en silence… presque.';
+        },
+      },
+      {
+        label: 'Le recevoir et le rassurer',
+        outcome: 'Moral du jeune +6, opinion du formateur −3.',
+        apply: (_s, c) => {
+          morale(c.player, 6);
+          opinion(c.staff, -3);
+          return 'Une heure de discussion, un plan de carrière sur papier.';
+        },
+      },
+      {
+        label: 'Proposer un premier contrat pro',
+        outcome: 'Le jeune rejoint l’effectif (statut Espoir, contrat 3 ans), moral +10.',
+        apply: (_s, c) => {
+          if (c.player) {
+            c.player.youth = false;
+            c.player.squadStatus = 'prospect';
+            c.player.contractYears = Math.max(c.player.contractYears, 3);
+          }
+          morale(c.player, 10);
+          return 'Le père signe en premier, sans même lire.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'agent-blacklist',
+    title: 'Liste noire',
+    role: 'director',
+    text: (c) => `${name(c.staff)} veut bannir du centre d'entraînement un agent qui monte vos joueurs contre le club. « Ou c'est lui, ou c'est moi. »`,
+    options: [
+      {
+        label: 'Bannir l’agent',
+        outcome: 'Exigences salariales −5 % pendant 10 semaines, opinion +8, moral de 2 joueurs −8.',
+        apply: (s, c, _r, ids) => {
+          modifier(s, ids, 'Un agent persona non grata', { wageDemands: -0.05 }, 10);
+          opinion(c.staff, 8);
+          byRating(userSquad(s)).filter((p) => hasTrait(p, 'ambitious')).slice(0, 2).forEach((p) => morale(p, -8));
+          return 'Son badge est désactivé dans l’heure.';
+        },
+      },
+      {
+        label: 'Négocier un pacte de non-agression',
+        outcome: 'Exigences salariales −3 % et prix de vente +4 % pendant 8 semaines.',
+        requires: staffTrait('diplomat', 'Staff diplomate'),
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Pacte avec l’agent', { wageDemands: -0.03, salePrice: 0.04 }, 8);
+          return 'Un déjeuner, une poignée de main, et des intérêts enfin alignés.';
+        },
+      },
+      {
+        label: 'On ne se fâche avec personne',
+        outcome: 'Opinion −8.',
+        apply: (_s, c) => {
+          opinion(c.staff, -8);
+          return 'Le directeur sportif ravale sa colère.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'scout-sabbatical',
+    title: 'Le tour du monde du recruteur',
+    role: 'scout',
+    pickStaff: (s) => s.staff.find((m) => m.role === 'scout' && m.traits.includes('globetrotter')) ?? s.staff.find((m) => m.role === 'scout'),
+    text: (c) => `${name(c.staff)} rêve d'un tour du monde des championnats méconnus : trois mois, douze pays, zéro jour de repos. Il vous présente son itinéraire.`,
+    options: [
+      {
+        label: 'Financer le périple (250 k€)',
+        outcome: 'Vitesse du scouting +15 %, qualité des boosters +2 pendant 20 semaines. Opinion +10.',
+        apply: (s, c, _r, ids) => {
+          if (!canPay(s, 250_000)) return tooPoor;
+          pay(s, 250_000, 'Tournée mondiale de recrutement');
+          modifier(s, ids, 'Le réseau mondial du recruteur', { scoutSpeed: 0.15, boosterQuality: 2 }, 20);
+          opinion(c.staff, 10);
+          return 'Ses cartes postales arrivent avec des noms de joueurs griffonnés au dos.';
+        },
+      },
+      {
+        label: 'Un seul continent (90 k€)',
+        outcome: 'Vitesse du scouting +8 % pendant 10 semaines, opinion +3.',
+        apply: (s, c, _r, ids) => {
+          if (!canPay(s, 90_000)) return tooPoor;
+          pay(s, 90_000, 'Mission de recrutement continentale');
+          modifier(s, ids, 'Mission continentale', { scoutSpeed: 0.08 }, 10);
+          opinion(c.staff, 3);
+          return 'Il choisit l’Amérique du Sud, évidemment.';
+        },
+      },
+      {
+        label: 'Refuser',
+        outcome: 'Opinion −7.',
+        apply: (_s, c) => {
+          opinion(c.staff, -7);
+          return 'Il replie sa carte du monde.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'altitude-camp',
+    title: 'Stage en altitude',
+    role: 'fitness',
+    condition: (s) => s.currentWeek <= 4 || (s.currentWeek >= 17 && s.currentWeek <= 21),
+    text: (c) => `${name(c.staff)} propose dix jours de stage à 1 800 mètres, comme les cyclistes. « Ils vont cracher leurs poumons, puis voler. »`,
+    options: [
+      {
+        label: 'Partir en altitude (180 k€)',
+        outcome: 'Fatigue +15 pour l’effectif, puis récupération +12 % et endurance des remplaçants +2 pendant 8 semaines.',
+        apply: (s, c, _r, ids) => {
+          if (!canPay(s, 180_000)) return tooPoor;
+          pay(s, 180_000, 'Stage en altitude');
+          squadFatigue(s, 15);
+          modifier(s, ids, 'Globules de l’altitude', { recovery: 0.12, subEnergy: 2 }, 8);
+          opinion(c.staff, 6);
+          return 'Vue imprenable, souffle coupé.';
+        },
+      },
+      {
+        label: 'Stage au vert, sans altitude',
+        outcome: 'Moral de l’équipe +4, fatigue −5 pour l’effectif.',
+        apply: (s) => {
+          teamMorale(s, 4);
+          squadFatigue(s, -5);
+          return 'Barbecue et pétanque au programme du soir.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'miracle-supplement',
+    title: 'Le complément miracle',
+    role: 'doctor',
+    pickPlayer: (s) => withTrait(s, 'ambitious')[0] ?? rotate(s, userSquad(s)),
+    text: (c) => `${name(c.staff)} a découvert que ${pname(c)} et plusieurs coéquipiers prennent un complément alimentaire acheté sur internet, vanté par un influenceur. Composition douteuse.`,
+    options: [
+      {
+        label: 'Tout faire analyser (30 k€)',
+        outcome: 'Opinion du médecin +6, risque de blessure −3 % pendant 6 semaines.',
+        apply: (s, c, _r, ids) => {
+          if (!canPay(s, 30_000)) return tooPoor;
+          pay(s, 30_000, 'Analyses en laboratoire');
+          opinion(c.staff, 6);
+          modifier(s, ids, 'Suivi médical renforcé', { injuryRisk: -0.03 }, 6);
+          return 'Les résultats confirment : de la poudre de craie aromatisée. Tout part à la poubelle.';
+        },
+      },
+      {
+        label: 'Interdiction immédiate',
+        outcome: 'Moral du joueur −5, opinion du médecin +3.',
+        apply: (_s, c) => {
+          morale(c.player, -5);
+          opinion(c.staff, 3);
+          return 'Seuls les produits validés par le staff sont autorisés.';
+        },
+      },
+      {
+        label: 'Ce n’est pas si grave',
+        outcome: 'Opinion du médecin −8, risque de blessure +5 % pendant 4 semaines.',
+        apply: (s, c, _r, ids) => {
+          opinion(c.staff, -8);
+          modifier(s, ids, 'Compléments douteux', { injuryRisk: 0.05 }, 4);
+          return 'Le médecin note votre refus dans son rapport.';
+        },
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------- 6e vague : vie du club
+  {
+    id: 'stadium-roof',
+    title: 'La toiture qui fuit',
+    text: (_c, s) => `Les techniciens sont formels : la toiture de la tribune Nord du ${userClub(s).stadium} fuit de partout. Les travaux complets coûteraient cher.`,
+    options: [
+      {
+        label: 'Tout refaire (450 k€)',
+        outcome: 'Confiance de la direction +2.',
+        apply: (s) => {
+          if (!canPay(s, 450_000)) return tooPoor;
+          pay(s, 450_000, 'Réfection de la toiture');
+          board(s, 2);
+          return 'Échafaudages en semaine, tribune impeccable le samedi.';
+        },
+      },
+      {
+        label: 'Un rafistolage (60 k€)',
+        outcome: 'Économie immédiate… en espérant qu’il ne pleuve pas.',
+        apply: (s, c) => {
+          if (!canPay(s, 60_000)) return tooPoor;
+          pay(s, 60_000, 'Rafistolage de la toiture');
+          chain(s, 'stadium-roof-leak', 5, c);
+          return 'Bâches et ruban adhésif renforcé.';
+        },
+      },
+      {
+        label: 'Attendre la fin de saison',
+        outcome: 'Aucun coût pour l’instant. Gare aux orages.',
+        apply: (s, c) => {
+          chain(s, 'stadium-roof-leak', 3, c);
+          return 'Le dossier rejoint la pile « plus tard ».';
+        },
+      },
+    ],
+  },
+  {
+    id: 'stadium-roof-leak',
+    title: 'Douche froide en tribune Nord',
+    followUp: true,
+    text: () => 'Un orage a éclaté pendant le dernier match à domicile : une cascade s’est abattue sur la tribune Nord. Les images font le tour du pays.',
+    options: [
+      {
+        label: 'Rembourser et tout refaire (600 k€)',
+        outcome: 'Confiance de la direction −2, moral de l’équipe +2.',
+        apply: (s) => {
+          if (!canPay(s, 600_000)) {
+            board(s, -6);
+            return 'La trésorerie ne le permet pas : la direction est furieuse.';
+          }
+          pay(s, 600_000, 'Réfection d’urgence de la toiture');
+          board(s, -2);
+          teamMorale(s, 2);
+          return 'Les supporters apprécient le geste.';
+        },
+      },
+      {
+        label: 'Distribuer des ponchos aux couleurs du club',
+        outcome: 'Recettes −5 % pendant 6 semaines, confiance de la direction −4, moral de l’équipe +1.',
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Tribune Nord fermée', { income: -0.05 }, 6);
+          board(s, -4);
+          teamMorale(s, 1);
+          return 'Le poncho devient culte. La tribune, elle, reste fermée.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'tram-works',
+    title: 'Le tramway arrive',
+    text: (_c, s) => `La ville de ${userClub(s).city} lance une ligne de tramway jusqu'au stade. Des mois de travaux en perspective ; le maire vous demande de participer au financement.`,
+    options: [
+      {
+        label: 'Cofinancer la station (300 k€)',
+        outcome: 'Recettes −3 % pendant 8 semaines (travaux), confiance +3. Une belle inauguration suivra.',
+        apply: (s, c, _r, ids) => {
+          if (!canPay(s, 300_000)) return tooPoor;
+          pay(s, 300_000, 'Cofinancement de la station de tramway');
+          modifier(s, ids, 'Travaux du tramway', { income: -0.03 }, 8);
+          board(s, 3);
+          chain(s, 'tram-inauguration', 10, c);
+          return 'La station s’appellera « Stade ».';
+        },
+      },
+      {
+        label: 'Négocier la station sans payer',
+        outcome: 'Recettes −3 % pendant 8 semaines. Une belle inauguration suivra.',
+        requires: lifestyle('steward', 'Gestionnaire'),
+        apply: (s, c, _r, ids) => {
+          modifier(s, ids, 'Travaux du tramway', { income: -0.03 }, 8);
+          chain(s, 'tram-inauguration', 10, c);
+          return 'Vous obtenez la station en échange de places pour les écoles.';
+        },
+      },
+      {
+        label: 'Ce n’est pas notre affaire',
+        outcome: 'Recettes −5 % pendant 8 semaines, confiance de la direction −2.',
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Travaux du tramway', { income: -0.05 }, 8);
+          board(s, -2);
+          return 'Le tracé contourne le stade. Les supporters marcheront.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'tram-inauguration',
+    title: 'Inauguration du tramway',
+    followUp: true,
+    text: (_c, s) => `La ligne de tramway est inaugurée : la station « Stade » dépose désormais les supporters au pied du ${userClub(s).stadium}.`,
+    options: [
+      {
+        label: 'Couper le ruban avec le maire',
+        outcome: 'Recettes +5 % pendant 15 semaines, confiance de la direction +3.',
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Station « Stade »', { income: 0.05 }, 15);
+          board(s, 3);
+          return 'Écharpe tricolore et écharpe du club, côte à côte.';
+        },
+      },
+      {
+        label: 'Billets offerts aux riverains',
+        outcome: 'Recettes +3 % pendant 15 semaines, moral de l’équipe +5.',
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Station « Stade »', { income: 0.03 }, 15);
+          teamMorale(s, 5);
+          return 'Les riverains, longtemps excédés par les travaux, deviennent supporters.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'sponsor-colors',
+    title: 'Le sponsor veut du fluo',
+    text: () => 'Une marque de boissons énergisantes propose un contrat record… à condition que le maillot extérieur devienne jaune fluo, logo géant compris.',
+    options: [
+      {
+        label: 'Signer (+1 M€)',
+        outcome: '+1 M€, moral de l’équipe −3, recettes −2 % pendant 6 semaines (boycott des puristes).',
+        apply: (s, _c, _r, ids) => {
+          addMoney(s, s.userClubId, 'sponsor', 1_000_000, 'Contrat du maillot fluo');
+          teamMorale(s, -3);
+          modifier(s, ids, 'Boycott des puristes', { income: -0.02 }, 6);
+          return 'On vous voit désormais depuis l’espace.';
+        },
+      },
+      {
+        label: 'Négocier un liseré discret (+500 k€)',
+        outcome: '+500 k€. Personne n’est vraiment fâché.',
+        requires: lifestyle('negotiator', 'Négociateur'),
+        apply: (s) => {
+          addMoney(s, s.userClubId, 'sponsor', 500_000, 'Contrat de sponsoring');
+          return 'Un fin liseré jaune, presque élégant.';
+        },
+      },
+      {
+        label: 'Nos couleurs ne sont pas à vendre',
+        outcome: 'Moral de l’équipe +3, confiance de la direction −2.',
+        apply: (s) => {
+          teamMorale(s, 3);
+          board(s, -2);
+          return 'Les supporters déploient une banderole « Merci coach ».';
+        },
+      },
+    ],
+  },
+  {
+    id: 'giant-tifo',
+    title: 'Le tifo géant',
+    pickClub: (s) => nextOpponent(s),
+    condition: (s) => !!nextOpponent(s) && !nextIsAway(s),
+    text: (c) => `Les groupes de supporters préparent un tifo géant pour la réception de ${c.club?.name ?? 'notre prochain adversaire'} : trois mois de travail, mais il leur manque de quoi payer la toile.`,
+    options: [
+      {
+        label: 'Le club paie la toile (50 k€)',
+        outcome: 'Force en match +2 % pendant 1 semaine, moral de l’équipe +4.',
+        apply: (s, _c, _r, ids) => {
+          if (!canPay(s, 50_000)) return tooPoor;
+          pay(s, 50_000, 'Financement d’un tifo');
+          modifier(s, ids, 'Le tifo géant', { matchStrength: 0.02 }, 1);
+          teamMorale(s, 4);
+          return 'Toute la tribune se couvre des couleurs du club. Frissons garantis.';
+        },
+      },
+      {
+        label: 'Laisser les supporters se débrouiller',
+        outcome: 'Moral de l’équipe −1.',
+        apply: (s) => {
+          teamMorale(s, -1);
+          return 'Le tifo sera plus petit, mais il sera là.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'coach-podcast',
+    title: 'Votre propre podcast ?',
+    text: () => 'Une radio vous propose d’animer un podcast hebdomadaire sur le football et la vie d’entraîneur. Bonne visibilité, mais du temps en moins.',
+    options: [
+      {
+        label: 'Accepter (+60 k€)',
+        outcome: '+60 k€, recettes +2 % pendant 10 semaines, force en match −1 % pendant 4 semaines.',
+        apply: (s, _c, _r, ids) => {
+          addMoney(s, s.userClubId, 'sponsor', 60_000, 'Podcast de l’entraîneur');
+          modifier(s, ids, 'Le podcast du coach', { income: 0.02 }, 10);
+          modifier(s, ids, 'Coach distrait', { matchStrength: -0.01 }, 4);
+          return 'Premier épisode : « Pourquoi le 4-4-2 n’est pas mort ».';
+        },
+      },
+      {
+        label: 'Un podcast tactique de référence',
+        outcome: 'Confiance de la direction +3, recettes +3 % pendant 10 semaines, sans perte de concentration.',
+        requires: lifestyle('tactician', 'Tacticien'),
+        apply: (s, _c, _r, ids) => {
+          board(s, 3);
+          modifier(s, ids, 'Le podcast du coach', { income: 0.03 }, 10);
+          return 'Les entraîneurs adverses l’écoutent… et vous le savez.';
+        },
+      },
+      {
+        label: 'Refuser',
+        outcome: 'Aucun effet.',
+        apply: () => 'Vous préférez parler sur le terrain.',
+      },
+    ],
+  },
+  {
+    id: 'presidents-bet',
+    title: 'Le pari des présidents',
+    pickClub: (s) => nextOpponent(s),
+    condition: (s) => !!nextOpponent(s),
+    text: (c) => `Votre président a parié en direct à la télévision avec celui de ${c.club?.name ?? 'notre adversaire'} : le perdant portera l'écharpe du vainqueur en conférence de presse.`,
+    options: [
+      {
+        label: 'Jouer le jeu',
+        outcome: 'Moral de l’équipe +4, force en match +1 % pendant 1 semaine, confiance de la direction +2.',
+        apply: (s, _c, _r, ids) => {
+          teamMorale(s, 4);
+          modifier(s, ids, 'L’honneur du président', { matchStrength: 0.01 }, 1);
+          board(s, 2);
+          return 'Le président passe en personne motiver les joueurs.';
+        },
+      },
+      {
+        label: 'Demander au président de se calmer',
+        outcome: 'Confiance de la direction −3, moral de l’équipe +1.',
+        apply: (s) => {
+          board(s, -3);
+          teamMorale(s, 1);
+          return 'Il raccroche en grommelant.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'pitch-fungus',
+    title: 'La pelouse malade',
+    pickStaff: (s) => staffOf(s, 'fitness'),
+    text: () => 'Un champignon ronge la pelouse du stade : plaques jaunes, appuis glissants. Le jardinier propose deux solutions.',
+    options: [
+      {
+        label: 'Pelouse hybride neuve (350 k€)',
+        outcome: 'Risque de blessure −4 % pendant 15 semaines, opinion du préparateur physique +5.',
+        apply: (s, c, _r, ids) => {
+          if (!canPay(s, 350_000)) return tooPoor;
+          pay(s, 350_000, 'Nouvelle pelouse hybride');
+          modifier(s, ids, 'Pelouse hybride', { injuryRisk: -0.04 }, 15);
+          opinion(c.staff, 5);
+          return 'Un billard.';
+        },
+      },
+      {
+        label: 'Traitement et patience (40 k€)',
+        outcome: 'Risque de blessure +5 % pendant 4 semaines.',
+        apply: (s, _c, _r, ids) => {
+          if (!canPay(s, 40_000)) return tooPoor;
+          pay(s, 40_000, 'Traitement de la pelouse');
+          modifier(s, ids, 'Pelouse convalescente', { injuryRisk: 0.05 }, 4);
+          return 'Il faudra serrer les dents quelques semaines.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'stands-proposal',
+    title: 'Demande en mariage en tribune',
+    text: () => 'Un abonné de longue date veut demander sa compagne en mariage sur l’écran géant à la mi-temps. Il sollicite le club.',
+    options: [
+      {
+        label: 'Écran géant et maillots dédicacés',
+        outcome: 'Moral de l’équipe +3, recettes +1 % pendant 4 semaines.',
+        apply: (s, _c, _r, ids) => {
+          teamMorale(s, 3);
+          modifier(s, ids, 'Un club qui a du cœur', { income: 0.01 }, 4);
+          return 'Elle a dit oui ! Le stade entier chante pour eux.';
+        },
+      },
+      {
+        label: 'Les inviter en loge (10 k€)',
+        outcome: 'Moral de l’équipe +4, confiance de la direction +1.',
+        apply: (s) => {
+          if (!canPay(s, 10_000)) return tooPoor;
+          pay(s, 10_000, 'Invitation en loge');
+          teamMorale(s, 4);
+          board(s, 1);
+          return 'Champagne en loge présidentielle, photo avec l’équipe.';
+        },
+      },
+      {
+        label: 'Ce n’est pas le lieu',
+        outcome: 'Aucun effet.',
+        apply: () => 'Il fera sa demande au restaurant.',
+      },
+    ],
+  },
+  {
+    id: 'memorabilia-auction',
+    title: 'Vente aux enchères des reliques',
+    text: () => 'Un commissaire-priseur propose de vendre une partie des reliques du club : maillots d’époque, ballons de finales, le vieux banc de touche.',
+    options: [
+      {
+        label: 'Tout vendre (+400 k€)',
+        outcome: '+400 k€, moral de l’équipe −4.',
+        apply: (s) => {
+          addMoney(s, s.userClubId, 'sponsor', 400_000, 'Vente aux enchères de reliques');
+          teamMorale(s, -4);
+          return 'Les anciens grincent des dents en voyant partir leurs maillots.';
+        },
+      },
+      {
+        label: 'Une vente caritative',
+        outcome: 'Confiance de la direction +3, moral de l’équipe +2.',
+        apply: (s) => {
+          board(s, 3);
+          teamMorale(s, 2);
+          return 'Les fonds partent à l’hôpital pédiatrique de la ville.';
+        },
+      },
+      {
+        label: 'Ouvrir un musée',
+        outcome: 'Recettes +3 % pendant 20 semaines (150 k€).',
+        apply: (s, _c, _r, ids) => {
+          if (!canPay(s, 150_000)) return tooPoor;
+          pay(s, 150_000, 'Aménagement du musée du club');
+          modifier(s, ids, 'Musée du club', { income: 0.03 }, 20);
+          return 'Les écoles défilent dans les vitrines.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'bus-breakdown',
+    title: 'Le car tombe en panne',
+    pickClub: (s) => nextOpponent(s),
+    condition: (s) => nextIsAway(s),
+    text: (c) => `Sur la route de ${c.club?.city ?? 'notre déplacement'}, le car du club rend l'âme sur une aire d'autoroute. Coup d'envoi dans six heures.`,
+    options: [
+      {
+        label: 'Affréter un avion (80 k€)',
+        outcome: 'Aucune fatigue supplémentaire.',
+        apply: (s) => {
+          if (!canPay(s, 80_000)) {
+            squadFatigue(s, 8);
+            return 'Pas les moyens : ce sera le train, debout. Fatigue +8.';
+          }
+          pay(s, 80_000, 'Vol affrété d’urgence');
+          return 'Décollage dans l’heure. Le pilote est supporter.';
+        },
+      },
+      {
+        label: 'Covoiturage avec les supporters',
+        outcome: 'Moral de l’équipe +6, fatigue +8 pour l’effectif.',
+        apply: (s) => {
+          teamMorale(s, 6);
+          squadFatigue(s, 8);
+          return 'Les supporters n’en reviennent pas : leur buteur dans leur voiture !';
+        },
+      },
+      {
+        label: 'Demander le report du match',
+        outcome: 'Confiance de la direction −3, fatigue −5.',
+        apply: (s) => {
+          board(s, -3);
+          squadFatigue(s, -5);
+          return 'La ligue accorde un décalage de quelques heures, en soupirant.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'stolen-mascot',
+    title: 'La mascotte a disparu',
+    pickClub: (s) => [...s.clubs].filter((x) => x.id !== s.userClubId).sort((a, b) => Math.abs(a.reputation - userClub(s).reputation) - Math.abs(b.reputation - userClub(s).reputation))[0],
+    text: (c) => `Le costume de la mascotte a disparu du stade. Une photo circule : on le voit trinquer avec des supporters de ${c.club?.name ?? 'l’ennemi juré'}.`,
+    options: [
+      {
+        label: 'Exiger une rançon symbolique',
+        outcome: 'Moral de l’équipe +4. La mascotte revient avec une écharpe adverse.',
+        apply: (s) => {
+          teamMorale(s, 4);
+          return 'Échange de prisonniers au péage : un costume contre un pack de bières.';
+        },
+      },
+      {
+        label: 'Une nouvelle mascotte (30 k€)',
+        outcome: 'Recettes +2 % pendant 6 semaines.',
+        apply: (s, _c, _r, ids) => {
+          if (!canPay(s, 30_000)) return tooPoor;
+          pay(s, 30_000, 'Nouvelle mascotte');
+          modifier(s, ids, 'Nouvelle mascotte', { income: 0.02 }, 6);
+          return 'Les enfants votent pour son nom : « Revanche ».';
+        },
+      },
+      {
+        label: 'En rire en conférence de presse',
+        outcome: 'Moral de l’équipe +2, confiance de la direction +1.',
+        apply: (s) => {
+          teamMorale(s, 2);
+          board(s, 1);
+          return '« Au moins, elle a enfin vu un stade plein. » La salle éclate de rire.';
+        },
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------- 6e vague : selon la situation
+  {
+    id: 'relegation-fear',
+    title: 'Le spectre de la relégation',
+    urgent: true,
+    condition: (s) => s.currentWeek >= 10 && leaguePosition(s) > s.clubs.length - 3,
+    text: (_c, s) => `${leaguePosition(s)}e au classement. La zone rouge n'est plus une menace, c'est une réalité. La ville retient son souffle.`,
+    options: [
+      {
+        label: 'Mise au vert de trois jours',
+        outcome: 'Moral de l’équipe +6, fatigue −10 pour l’effectif, force en match +2 % pendant 2 semaines.',
+        apply: (s, _c, _r, ids) => {
+          teamMorale(s, 6);
+          squadFatigue(s, -10);
+          modifier(s, ids, 'Mise au vert', { matchStrength: 0.02 }, 2);
+          return 'Coupés du monde, les joueurs ne parlent que de maintien.';
+        },
+      },
+      {
+        label: 'Appel aux supporters',
+        outcome: 'Recettes +4 % pendant 4 semaines, moral de l’équipe +4, confiance de la direction +2.',
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Tous unis pour le maintien', { income: 0.04 }, 4);
+          teamMorale(s, 4);
+          board(s, 2);
+          return 'Le stade affichera complet, quoi qu’il arrive.';
+        },
+      },
+      {
+        label: 'Jouer la sécurité',
+        outcome: 'Force en match +3 % pendant 3 semaines, moral de l’équipe −3.',
+        requires: lifestyle('tactician', 'Tacticien'),
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Le bloc bas du maintien', { matchStrength: 0.03 }, 3);
+          teamMorale(s, -3);
+          return 'Ce ne sera pas beau, mais ce sera solide.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'title-race',
+    title: 'Dans la course au titre',
+    condition: (s) => leaguePosition(s) <= 2 && s.currentWeek >= Math.floor(s.weeks.length * 0.6) && s.currentWeek < s.weeks.length - 4,
+    text: (_c, s) => `${leaguePosition(s) === 1 ? 'En tête' : 'Deuxième'} à l'approche du sprint final. Les journalistes ne parlent plus que de titre ; le vestiaire commence à y croire.`,
+    options: [
+      {
+        label: 'Assumer l’objectif titre',
+        outcome: 'Moral de l’équipe +6, confiance de la direction +4, force en match +1 % pendant 4 semaines.',
+        apply: (s, _c, _r, ids) => {
+          teamMorale(s, 6);
+          board(s, 4);
+          modifier(s, ids, 'Objectif titre assumé', { matchStrength: 0.01 }, 4);
+          return '« Oui, on veut être champions. » Les mots sont lâchés.';
+        },
+      },
+      {
+        label: 'Jouer les outsiders',
+        outcome: 'Moral de l’équipe +3, fatigue −8 pour l’effectif.',
+        apply: (s) => {
+          teamMorale(s, 3);
+          squadFatigue(s, -8);
+          return '« La pression est sur les autres. »';
+        },
+      },
+      {
+        label: 'Réclamer un renfort à la direction',
+        outcome: 'Budget transferts +15 %, confiance de la direction −2.',
+        apply: (s) => {
+          const club = userClub(s);
+          club.transferBudget = Math.round(club.transferBudget * 1.15);
+          board(s, -2);
+          return 'Le président ouvre le chéquier, nerveux.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'unbeaten-run',
+    title: 'Invaincus',
+    condition: (s) => {
+      const r = recentResults(s, 6);
+      return r.length === 6 && !r.includes('L') && streak(s, 'W') < 4;
+    },
+    text: () => 'Six matchs sans défaite. Le club n’a pas connu pareille solidité depuis des années, et les statisticiens commencent à compter.',
+    options: [
+      {
+        label: 'Ne rien changer',
+        outcome: 'Moral de l’équipe +4, force en match +1 % pendant 2 semaines.',
+        apply: (s, _c, _r, ids) => {
+          teamMorale(s, 4);
+          modifier(s, ids, 'Série d’invincibilité', { matchStrength: 0.01 }, 2);
+          return 'Même onze, même échauffement, même costume pour vous.';
+        },
+      },
+      {
+        label: 'Faire tourner les cadres',
+        outcome: 'Fatigue −12 pour l’effectif, moral des 5 joueurs les mieux notés −3.',
+        apply: (s) => {
+          squadFatigue(s, -12);
+          byRating(userSquad(s)).slice(0, 5).forEach((p) => morale(p, -3));
+          return 'Les remplaçants ont enfin leur chance.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'draw-kings',
+    title: 'Les rois du match nul',
+    urgent: true,
+    condition: (s) => streak(s, 'D') >= 3,
+    text: (_c, s) => `${streak(s, 'D')} matchs nuls d'affilée. Les supporters ironisent : « Abonnés au 1-1 ». Il manque ce petit quelque chose pour faire basculer les matchs.`,
+    options: [
+      {
+        label: 'Plus de risques offensifs',
+        outcome: 'Force en match +2 % pendant 2 semaines, risque de blessure +3 % pendant 2 semaines.',
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Tout pour l’attaque', { matchStrength: 0.02, injuryRisk: 0.03 }, 2);
+          return 'Deux attaquants de plus à l’entraînement, un défenseur de moins.';
+        },
+      },
+      {
+        label: 'Séances de finition supplémentaires',
+        outcome: 'Forme +1 pour les attaquants, fatigue +5 pour l’effectif.',
+        apply: (s) => {
+          userSquad(s).filter((p) => POSITION_GROUP[p.position] === 'ATT').forEach((p) => form(p, 1));
+          squadFatigue(s, 5);
+          return 'Cent frappes par jour et par attaquant.';
+        },
+      },
+      {
+        label: 'Confier la clé au joueur décisif',
+        outcome: 'Moral de l’équipe +4, forme +2 pour le meilleur joueur Décisif.',
+        requires: { label: 'Un joueur Décisif ou Meneur', test: (s) => withTrait(s, 'clutch').length + withTrait(s, 'leader').length > 0 },
+        apply: (s) => {
+          const p = withTrait(s, 'clutch')[0] ?? withTrait(s, 'leader')[0];
+          teamMorale(s, 4);
+          form(p, 2);
+          return `${p ? fullName(p) : 'Il'} promet de faire basculer le prochain match.`;
+        },
+      },
+    ],
+  },
+  {
+    id: 'fixture-congestion',
+    title: 'Calendrier infernal',
+    role: 'fitness',
+    condition: (s) => avgFatigue(s) >= 35,
+    text: (c, s) => `Fatigue moyenne de l'effectif : ${Math.round(avgFatigue(s))} %. ${name(c.staff) || 'Le préparateur'} tire la sonnette d'alarme : les organismes ne suivent plus.`,
+    options: [
+      {
+        label: 'Deux jours off pour tout le monde',
+        outcome: 'Fatigue −15 pour l’effectif, forme −1 pour les 11 meilleurs, opinion +5.',
+        apply: (s, c) => {
+          squadFatigue(s, -15);
+          byRating(userSquad(s)).slice(0, 11).forEach((p) => form(p, -1));
+          opinion(c.staff, 5);
+          return 'Canapé, famille, sommeil.';
+        },
+      },
+      {
+        label: 'Rotation massive',
+        outcome: 'Fatigue −20 pour les 11 meilleurs, moral de l’équipe −2, moral des remplaçants +4.',
+        apply: (s) => {
+          const top = byRating(userSquad(s)).slice(0, 11);
+          top.forEach((p) => fatigue(p, -20));
+          userSquad(s).filter((p) => !top.includes(p)).forEach((p) => morale(p, 4));
+          teamMorale(s, -2);
+          return 'L’équipe B a sa chance.';
+        },
+      },
+      {
+        label: 'Serrer les dents',
+        outcome: 'Risque de blessure +8 % pendant 3 semaines, opinion −6.',
+        apply: (s, c, _r, ids) => {
+          modifier(s, ids, 'Organismes à bout', { injuryRisk: 0.08 }, 3);
+          opinion(c.staff, -6);
+          return 'Le préparateur hausse les épaules.';
+        },
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------- 6e vague : marché et coulisses
+  {
+    id: 'veteran-free-agent',
+    title: 'Un vieux lion sans club',
+    condition: (s) => userSquad(s).length < 30,
+    text: () => 'Un ancien international de 34 ans, libre de tout contrat, appelle personnellement : il veut finir sa carrière chez vous et ne demande qu’un salaire modeste.',
+    options: [
+      {
+        label: 'Le faire venir à l’essai',
+        outcome: 'Un vétéran libre (Meneur, Professionnel), bien connu de vos recruteurs, apparaît dans Transferts.',
+        apply: (s, _c, rng, ids) => {
+          const level = userClub(s).level;
+          const p = createPlayer(rng, { id: ids('p'), position: rng.pick(SQUAD_TEMPLATE), meanRating: 64 + level * 3, clubId: null, age: rng.int(33, 35) });
+          p.contractYears = 0;
+          p.potential = p.rating;
+          p.traits = ['leader', 'professional'];
+          p.scoutedBy = 'Appel d’un vétéran';
+          s.players.push(p);
+          s.scouting.knowledge[p.id] = 90;
+          return `${fullName(p)} (${POSITION_LABELS[p.position]}) attend votre offre.`;
+        },
+      },
+      {
+        label: 'Décliner poliment',
+        outcome: 'Aucun effet.',
+        apply: () => 'Il vous souhaite une belle saison, sans rancune.',
+      },
+    ],
+  },
+  {
+    id: 'sell-on-windfall',
+    title: 'Le jackpot de la revente',
+    pickClub: (s) => [...s.clubs].filter((x) => x.id !== s.userClubId).sort((a, b) => b.reputation - a.reputation)[0],
+    text: (c) => `Un joueur formé au club et vendu il y a des années vient de signer à ${c.club?.name ?? 'un grand club'} pour une fortune. Grâce au pourcentage à la revente, un chèque arrive.`,
+    options: [
+      {
+        label: 'Renflouer les caisses',
+        outcome: 'Encaisser 300 k€ à 1 M€ selon le niveau du club.',
+        apply: (s) => {
+          const fee = roundMoney(150_000 + userClub(s).level * 170_000);
+          addMoney(s, s.userClubId, 'transferOut', fee, 'Pourcentage à la revente');
+          return `${millions(fee)} tombent dans la trésorerie.`;
+        },
+      },
+      {
+        label: 'Tout réinvestir dans la formation',
+        outcome: 'Potentiel des promotions +2 et progression des jeunes +8 % pendant 20 semaines. Opinion du formateur +6.',
+        apply: (s, _c, _r, ids) => {
+          modifier(s, ids, 'Le chèque de la revente', { youthPotential: 2, youthGrowth: 0.08 }, 20);
+          opinion(staffOf(s, 'youth'), 6);
+          return 'Le centre de formation récolte ce qu’il a semé.';
+        },
+      },
+      {
+        label: 'Prime au staff qui l’avait formé',
+        outcome: 'Encaisser la moitié de la somme ; opinion de tout le staff +5.',
+        apply: (s) => {
+          const fee = roundMoney((150_000 + userClub(s).level * 170_000) / 2);
+          addMoney(s, s.userClubId, 'transferOut', fee, 'Pourcentage à la revente');
+          s.staff.forEach((m) => opinion(m, 5));
+          return 'Le staff fête ça au restaurant du coin.';
+        },
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------- 6e vague : petits bonheurs
+  {
+    id: 'dressing-room-anthem',
+    title: 'L’hymne du vestiaire',
+    pickPlayer: (s) => withTrait(s, 'joker')[0] ?? rotate(s, userSquad(s)),
+    condition: (s) => withTrait(s, 'joker').length > 0,
+    text: (c) => `${pname(c)} a composé une chanson pour le vestiaire, sur un air de variété des années 80. Les joueurs la chantent en boucle ; une radio veut la diffuser.`,
+    options: [
+      {
+        label: 'En faire l’hymne officiel',
+        outcome: 'Moral de l’équipe +6, recettes +2 % pendant 6 semaines.',
+        apply: (s, c, _r, ids) => {
+          teamMorale(s, 6);
+          modifier(s, ids, 'Le tube du vestiaire', { income: 0.02 }, 6);
+          morale(c.player, 6);
+          return 'Le stade la reprend dès le match suivant.';
+        },
+      },
+      {
+        label: 'Réservée au vestiaire',
+        outcome: 'Moral de l’équipe +3.',
+        apply: (s) => {
+          teamMorale(s, 3);
+          return 'Ce qui se chante dans le vestiaire reste dans le vestiaire.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'keeper-dog',
+    title: 'Un chien à l’entraînement',
+    pickPlayer: (s) => userSquad(s).find((p) => p.position === 'GK') ?? rotate(s, userSquad(s)),
+    condition: (s) => userSquad(s).some((p) => p.position === 'GK'),
+    text: (c) => `${pname(c)} amène chaque jour son labrador à l'entraînement. Le chien rapporte les ballons, vole les plots et fait l'unanimité… sauf auprès de l'intendant.`,
+    options: [
+      {
+        label: 'Nommer le chien mascotte',
+        outcome: 'Moral de l’équipe +5, moral du joueur +6.',
+        apply: (s, c) => {
+          teamMorale(s, 5);
+          morale(c.player, 6);
+          return 'Il a désormais son propre badge et son maillot floqué.';
+        },
+      },
+      {
+        label: 'Interdire les animaux',
+        outcome: 'Moral du joueur −5, moral de l’équipe −1.',
+        apply: (s, c) => {
+          morale(c.player, -5);
+          teamMorale(s, -1);
+          return 'Le labrador attendra sur le parking, l’air triste.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'fantasy-league',
+    title: 'La ligue fantasy du vestiaire',
+    pickStaff: (s) => staffOf(s, 'assistant') ?? s.staff[0],
+    condition: (s) => s.staff.length > 0,
+    text: (c) => `Les joueurs ont créé une ligue de fantasy football. ${name(c.staff)} caracole en tête et chambre tout le monde ; certains joueurs se sont mis eux-mêmes dans leur équipe.`,
+    options: [
+      {
+        label: 'Rejoindre la ligue',
+        outcome: 'Moral de l’équipe +4, opinion du membre du staff +4.',
+        apply: (s, c) => {
+          teamMorale(s, 4);
+          opinion(c.staff, 4);
+          return 'Vous finissez bon dernier dès la première journée. Le vestiaire jubile.';
+        },
+      },
+      {
+        label: 'Interdire de se sélectionner soi-même',
+        outcome: 'Moral de l’équipe +2, confiance de la direction +1.',
+        apply: (s) => {
+          teamMorale(s, 2);
+          board(s, 1);
+          return 'Une règle, une seule. Elle est respectée… presque.';
+        },
       },
     ],
   },
